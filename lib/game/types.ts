@@ -1,0 +1,286 @@
+export const GRID_COLUMNS = 6 as const;
+export const GRID_ROWS = 4 as const;
+
+export type Tier = 1 | 2 | 3;
+export type GamePhase =
+  | "preparation"
+  | "combat"
+  | "level-up"
+  | "victory"
+  | "defeat";
+
+export type CharacterId = "shieldbearer" | "scout" | "sharpshooter";
+export type WeaponId = "sword" | "bow" | "hammer" | "wand";
+export type EnemyId = "grunt" | "runner" | "armored" | "thrower" | "boss";
+export type ItemId = CharacterId | WeaponId;
+export type ItemKind = "character" | "weapon";
+export type Direction = "up" | "right" | "down" | "left";
+
+export interface GridPosition {
+  row: number;
+  col: number;
+}
+
+interface ItemDefinitionBase {
+  id: ItemId;
+  kind: ItemKind;
+  name: string;
+  icon: string;
+  color: string;
+  description: string;
+}
+
+export interface CharacterDefinition extends ItemDefinitionBase {
+  id: CharacterId;
+  kind: "character";
+  hp: number;
+  moveSpeed: number;
+  /** Seconds between spawns. */
+  spawnCooldown: number;
+  meleeDamageMultiplier: number;
+  rangedDamageMultiplier: number;
+  rangeMultiplier: number;
+}
+
+export type WeaponAttackKind = "slash" | "projectile" | "smash" | "chain";
+
+export interface WeaponDefinition extends ItemDefinitionBase {
+  id: WeaponId;
+  kind: "weapon";
+  damage: number;
+  /** Seconds between attacks. */
+  cooldown: number;
+  range: number;
+  attackKind: WeaponAttackKind;
+  maxTargets: number;
+  ranged: boolean;
+  secondaryDamageMultiplier?: number;
+  effectRadius?: number;
+}
+
+export type ItemDefinition = CharacterDefinition | WeaponDefinition;
+
+export interface EnemyDefinition {
+  id: EnemyId;
+  name: string;
+  icon: string;
+  color: string;
+  hp: number;
+  moveSpeed: number;
+  damage: number;
+  /** Seconds between attacks. */
+  cooldown: number;
+  range: number;
+  xp: number;
+  armor?: number;
+  isBoss?: boolean;
+}
+
+export interface GridItem {
+  id: string;
+  definitionId: ItemId;
+  tier: Tier;
+  /** Null is allowed while a pointer drag is in progress. */
+  position: GridPosition | null;
+  sourceLevel?: number;
+}
+
+export interface PendingReward {
+  id: string;
+  definitionId: ItemId;
+  tier: Tier;
+  sourceLevel?: number;
+}
+
+export interface EquippedWeaponSnapshot {
+  weaponId: WeaponId;
+  tier: Tier;
+  direction: Direction;
+}
+
+export interface SpawnLoadoutSnapshot {
+  characterId: CharacterId;
+  characterTier: Tier;
+  weapons: EquippedWeaponSnapshot[];
+}
+
+export interface SpawnerBlueprint {
+  id: string;
+  characterId: CharacterId;
+  tier: Tier;
+  row: number;
+  col: number;
+  weapons: EquippedWeaponSnapshot[];
+}
+
+export interface WaveEnemyCount {
+  enemyId: EnemyId;
+  count: number;
+}
+
+export interface WaveGroup {
+  /** Seconds from wave start. */
+  at: number;
+  enemies: WaveEnemyCount[];
+}
+
+export interface WaveDefinition {
+  index: number;
+  name: string;
+  /** Seconds before the wave is lost to timeout. */
+  timeLimit: number;
+  groups: WaveGroup[];
+}
+
+export interface WaveStartInput {
+  waveIndex: number;
+  seed: string;
+  baseHp: number;
+  playerXp: number;
+  playerLevel: number;
+  spawners: SpawnerBlueprint[];
+  wave: WaveDefinition;
+}
+
+export interface CombatWeaponView {
+  definitionId: WeaponId;
+  tier: Tier;
+  direction: Direction;
+  cooldownRatio: number;
+}
+
+export interface CombatUnitView {
+  id: string;
+  side: "ally" | "enemy";
+  definitionId: CharacterId | EnemyId;
+  name: string;
+  tier: Tier;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  facing: -1 | 1;
+  isBoss?: boolean;
+  flash: number;
+  spawnGlow: number;
+  weapons?: CombatWeaponView[];
+}
+
+export interface ProjectileView {
+  id: string;
+  side: "ally" | "enemy";
+  x: number;
+  y: number;
+  prevX: number;
+  prevY: number;
+  targetX: number;
+  targetY: number;
+  kind: WeaponAttackKind | "enemy";
+}
+
+export interface CombatEffectView {
+  id: string;
+  kind: "spawn" | "hit" | "damage" | "slash" | "smash";
+  x: number;
+  y: number;
+  life: number;
+  maxLife: number;
+  value?: number;
+}
+
+export interface CombatMetrics {
+  elapsed: number;
+  alliesSpawned: Record<string, number>;
+  weaponDamage: Record<string, number>;
+  enemiesDefeated: Record<string, number>;
+  totalDamage: number;
+  baseDamageTaken: number;
+  peakAllies: number;
+  peakEnemies: number;
+  projectilesCreated: number;
+}
+
+export interface CombatHud {
+  waveIndex: number;
+  elapsed: number;
+  timeLimit: number;
+  baseHp: number;
+  maxBaseHp: number;
+  playerXp: number;
+  playerLevel: number;
+  nextLevelXp: number | null;
+  pendingLevelUps: number;
+  enemiesAlive: number;
+  enemiesRemaining: number;
+}
+
+export type CombatSimulationPhase =
+  | "idle"
+  | "running"
+  | "paused"
+  | "cleared"
+  | "defeat";
+
+export interface CombatSnapshot {
+  phase: CombatSimulationPhase;
+  waveIndex: number;
+  elapsed: number;
+  timeLimit: number;
+  baseHp: number;
+  maxBaseHp: number;
+  playerXp: number;
+  playerLevel: number;
+  pendingLevelUps: number;
+  pausedReasons: string[];
+  allies: CombatUnitView[];
+  enemies: CombatUnitView[];
+  projectiles: ProjectileView[];
+  effects: CombatEffectView[];
+  metrics: CombatMetrics;
+}
+
+export type DefeatReason = "base-destroyed" | "timeout";
+
+export type CombatEvent =
+  | { type: "snapshot"; snapshot: CombatSnapshot }
+  | { type: "hud"; hud: CombatHud }
+  | { type: "xp-gained"; amount: number; total: number }
+  | { type: "level-up"; level: number; pendingLevelUps: number }
+  | { type: "wave-cleared"; waveIndex: number; metrics: CombatMetrics }
+  | {
+      type: "defeat";
+      reason: DefeatReason;
+      waveIndex: number;
+      metrics: CombatMetrics;
+    };
+
+export interface RunReportInventoryItem {
+  id: string;
+  definitionId: ItemId;
+  tier: Tier;
+  row: number | null;
+  col: number | null;
+  location: "grid" | "queue";
+}
+
+export interface RunReportRewardChoice {
+  level: number;
+  definitionId: ItemId;
+  tier: Tier;
+}
+
+export interface RunReportV1 {
+  version: 1;
+  result: "victory" | "defeat";
+  defeatReason?: DefeatReason;
+  seed: string;
+  combatTime: number;
+  reachedWave: number;
+  baseHp: number;
+  playerLevel: number;
+  characterSpawns: Record<string, number>;
+  weaponDamage: Record<string, number>;
+  rewardChoices: RunReportRewardChoice[];
+  finalInventory: RunReportInventoryItem[];
+  completedAt: string;
+}
