@@ -22,6 +22,7 @@ import {
   autoMergeInventory,
   deriveSpawnerBlueprints,
   dropItemOnGrid,
+  getActiveWeaponConnections,
   getAdjacentWeaponConnections,
   getCharactersSharingWeapon,
   getGridItemAt,
@@ -30,6 +31,7 @@ import {
   getWorldSockets,
   normalizeRotation,
   positionsEqual,
+  reconcileEquipmentLinks,
   rotateGridItem,
 } from "@/lib/game/inventory";
 import { renderBattle } from "@/lib/game/render";
@@ -44,6 +46,7 @@ import {
   type CombatMetrics,
   type CombatSnapshot,
   type Direction,
+  type EquipmentLink,
   type GamePhase,
   type GridItem,
   type GridPosition,
@@ -148,29 +151,6 @@ function formatTime(seconds: number): string {
   return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
 }
 
-function buildReportText(report: RunReportV2): string {
-  const spawns = Object.entries(report.characterSpawns)
-    .map(([id, value]) => `- ${ITEM_DEFINITIONS[id as ItemId]?.name ?? id}: ${value}명`)
-    .join("\n") || "- 기록 없음";
-  const damage = Object.entries(report.weaponDamage)
-    .map(([id, value]) => `- ${ITEM_DEFINITIONS[id as ItemId]?.name ?? id}: ${Math.round(value)}`)
-    .join("\n") || "- 기록 없음";
-  const purchases = report.purchases
-    .map((purchase) => `- 웨이브 ${purchase.waveIndex}: ${ITEM_DEFINITIONS[purchase.definitionId].name} (${purchase.price}골드)`)
-    .join("\n") || "- 구매 없음";
-  return [
-    `일꾼 키우기 전투 결과 · ${report.result === "victory" ? "승리" : "패배"}`,
-    `시드: ${report.seed}`,
-    `도달 웨이브: ${report.reachedWave}/6`,
-    `전투 시간: ${formatTime(report.combatTime)}`,
-    `기지 HP: ${Math.round(report.baseHp)}/100`,
-    `골드: 획득 ${report.goldEarned} / 사용 ${report.goldSpent} / 남음 ${report.goldRemaining}`,
-    "", "구매 내역", purchases,
-    "", "캐릭터 생성", spawns,
-    "", "무기 피해", damage,
-  ].join("\n");
-}
-
 function itemStyle(definition: ItemDefinition, progress = 0): CSSProperties {
   return {
     "--item-color": definition.color,
@@ -199,6 +179,7 @@ export default function GameClient() {
   const [waveCursor, setWaveCursor] = useState(0);
   const [seed, setSeed] = useState(DEFAULT_SEED);
   const [gridItems, setGridItems] = useState<GridItem[]>(cloneStartingInventory);
+  const [equipmentLinks, setEquipmentLinks] = useState<EquipmentLink[]>(() => reconcileEquipmentLinks(cloneStartingInventory(), []));
   const [snapshot, setSnapshot] = useState<CombatSnapshot>(() => createIdleSnapshot());
   const [gold, setGold] = useState(0);
   const [goldEarned, setGoldEarned] = useState(0);
@@ -215,10 +196,10 @@ export default function GameClient() {
   const [settings, setSettings] = useState<Settings>({ muted: false, reducedMotion: false });
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [report, setReport] = useState<RunReportV2 | null>(null);
-  const [copyFallback, setCopyFallback] = useState<string | null>(null);
 
   const phaseRef = useRef(phase);
   const gridRef = useRef(gridItems);
+  const equipmentLinksRef = useRef(equipmentLinks);
   const seedRef = useRef(seed);
   const snapshotRef = useRef(snapshot);
   const goldRef = useRef(gold);
@@ -230,6 +211,7 @@ export default function GameClient() {
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { gridRef.current = gridItems; }, [gridItems]);
+  useEffect(() => { equipmentLinksRef.current = equipmentLinks; }, [equipmentLinks]);
   useEffect(() => { seedRef.current = seed; }, [seed]);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
   useEffect(() => { goldRef.current = gold; }, [gold]);
@@ -266,6 +248,16 @@ export default function GameClient() {
     } catch {
       // Sound is optional.
     }
+  }, []);
+
+  const commitInventory = useCallback((nextGridItems: GridItem[], autoMerge = true) => {
+    const merged = autoMerge ? autoMergeInventory(nextGridItems, []) : { gridItems: nextGridItems, pendingRewards: [], merges: [] };
+    const nextLinks = reconcileEquipmentLinks(merged.gridItems, equipmentLinksRef.current);
+    gridRef.current = merged.gridItems;
+    equipmentLinksRef.current = nextLinks;
+    setGridItems(merged.gridItems);
+    setEquipmentLinks(nextLinks);
+    return merged;
   }, []);
 
   const finishRun = useCallback((result: "victory" | "defeat", reachedWave: number, defeatReason?: RunReportV2["defeatReason"]) => {
@@ -372,9 +364,7 @@ export default function GameClient() {
         changePhase("transition");
         playTone(620, 0.14);
         transitionTimerRef.current = setTimeout(() => {
-          const merged = autoMergeInventory(gridRef.current, []);
-          gridRef.current = merged.gridItems;
-          setGridItems(merged.gridItems);
+          commitInventory(gridRef.current);
           setWaveCursor(event.waveIndex);
           setShopOffers(generateShopOffers(seedRef.current, event.waveIndex));
           setSelectedOfferId(null);
@@ -401,7 +391,7 @@ export default function GameClient() {
       flashTimers.clear();
       void audioRef.current?.close();
     };
-  }, [changePhase, finishRun, flashSpawnLinks, playTone, showToast]);
+  }, [changePhase, commitInventory, finishRun, flashSpawnLinks, playTone, showToast]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -442,10 +432,13 @@ export default function GameClient() {
     if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
     engineRef.current.resume("manual");
     const fresh = cloneStartingInventory();
+    const freshLinks = reconcileEquipmentLinks(fresh, []);
     setSeed(nextSeed);
     seedRef.current = nextSeed;
     setGridItems(fresh);
     gridRef.current = fresh;
+    setEquipmentLinks(freshLinks);
+    equipmentLinksRef.current = freshLinks;
     setWaveCursor(0);
     setGold(0);
     goldRef.current = 0;
@@ -472,7 +465,7 @@ export default function GameClient() {
 
   const startWave = useCallback(() => {
     const wave = WAVE_DEFINITIONS[waveCursor];
-    const spawners = deriveSpawnerBlueprints(gridRef.current);
+    const spawners = deriveSpawnerBlueprints(gridRef.current, equipmentLinksRef.current);
     if (!wave || spawners.length === 0) {
       showToast("가방에 캐릭터를 한 명 이상 배치해 주세요.", "warning");
       return;
@@ -499,8 +492,7 @@ export default function GameClient() {
       showToast(result.reason === "not-enough-gold" ? "골드가 부족해요." : "가방에 넣을 자리가 없어요.", "warning");
       return;
     }
-    gridRef.current = result.gridItems;
-    setGridItems(result.gridItems);
+    commitInventory(result.gridItems, false);
     goldRef.current = result.gold;
     setGold(result.gold);
     goldSpentRef.current += offer.price;
@@ -517,7 +509,7 @@ export default function GameClient() {
     setSelectedOfferId(null);
     playTone(690, 0.1);
     showToast(`${ITEM_DEFINITIONS[offer.definitionId].name} 구매 완료${result.merges ? ` · ${result.merges}회 합성` : ""}`, "success");
-  }, [playTone, selectedOfferId, shopOffers, showToast]);
+  }, [commitInventory, playTone, selectedOfferId, shopOffers, showToast]);
 
   const togglePause = useCallback(() => {
     if (phaseRef.current !== "combat") return;
@@ -529,11 +521,9 @@ export default function GameClient() {
   }, []);
 
   const applyInventory = useCallback((nextGridItems: GridItem[], message?: string) => {
-    const merged = autoMergeInventory(nextGridItems, []);
-    gridRef.current = merged.gridItems;
-    setGridItems(merged.gridItems);
+    const merged = commitInventory(nextGridItems);
     if (message || merged.merges.length) showToast(message ?? `${merged.merges.length}회 자동 합성 완료!`, "success");
-  }, [showToast]);
+  }, [commitInventory, showToast]);
 
   const completeDrop = useCallback((itemId: string, target: string | null, grabRow = 0, grabCol = 0) => {
     if (!target || (phaseRef.current !== "preparation" && phaseRef.current !== "shop")) return;
@@ -626,16 +616,18 @@ export default function GameClient() {
     const isCharacter = definition.kind === "character";
     const geometry = getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation));
     const adjacentConnections = isCharacter ? getAdjacentWeaponConnections(item, gridItems) : [];
-    const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems);
+    const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems, equipmentLinks) : [];
+    const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems, equipmentLinks);
     const connectionMarks = isCharacter
-      ? adjacentConnections.map(({ direction }) => ({ direction, row: 0, col: 0, key: direction }))
+      ? activeConnections.map(({ direction, item: weapon }) => ({ direction, row: 0, col: 0, key: `${direction}-${weapon.id}` }))
       : getWorldSockets(item).flatMap((socket, index) => {
           const offsets: Record<Direction, [number, number]> = {
             up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
           };
           const [rowOffset, colOffset] = offsets[socket.direction];
           const neighbor = getGridItemAt(gridItems, { row: socket.position.row + rowOffset, col: socket.position.col + colOffset });
-          if (!neighbor || !isCharacterId(neighbor.definitionId) || !item.position) return [];
+          if (!neighbor || !isCharacterId(neighbor.definitionId) || !item.position
+            || !getActiveWeaponConnections(neighbor, gridItems, equipmentLinks).some(({ item: weapon }) => weapon.id === item.id)) return [];
           return [{
             direction: socket.direction,
             row: socket.position.row - item.position.row,
@@ -649,6 +641,18 @@ export default function GameClient() {
     const spawner = snapshot.spawners.find((entry) => entry.id === item.id);
     const progress = phase === "combat" && isCharacter ? spawner?.progress ?? 0 : 0;
     const squadDetail = spawner ? ` · 분대 ${spawner.activeCount}/${spawner.maxActive}` : "";
+    const activeRelationDetail = isCharacter
+      ? `장착 무기: ${activeConnections.length ? activeConnections.map(({ item: weapon }) => ITEM_DEFINITIONS[weapon.definitionId].name).join(", ") : "맨손"}`
+      : `공유 캐릭터 ${sharingCharacters.length}명`;
+    const characterStats = isCharacter
+      ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초 · 무기 슬롯 ${definition.weaponSlots[item.tier]}개`
+      : "";
+    const penaltyDetail = !isCharacter && definition.equipPenalty
+      ? [
+        definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : "",
+        definition.equipPenalty.moveSpeedMultiplier ? `이동 -${Math.round((1 - definition.equipPenalty.moveSpeedMultiplier) * 100)}%` : "",
+      ].filter(Boolean).join(" · ")
+      : "";
     const detailId = `item-detail-${item.id}`;
     const layoutStyle = {
       ...itemStyle(definition, progress),
@@ -667,12 +671,13 @@ export default function GameClient() {
           `shape-${item.definitionId}`,
           `rotation-${normalizeRotation(item.rotation)}`,
           `tier-${item.tier}`,
+          activeConnections.length || sharingCharacters.length ? "linked-active" : "",
           drag?.id === item.id ? "dragging" : "",
           previewItemId === item.id ? "previewing" : "",
           spawnFlashIds.has(item.id) ? "spawn-linked-flash" : "",
         ].filter(Boolean).join(" ")}
         style={layoutStyle}
-        aria-label={`${definition.name} 티어 ${item.tier}. ${relationDetail}${squadDetail}`}
+        aria-label={`${definition.name} 티어 ${item.tier}. ${activeRelationDetail}${squadDetail}`}
         aria-describedby={detailId}
         aria-disabled={inventoryLocked}
         aria-expanded={previewItemId === item.id}
@@ -697,7 +702,9 @@ export default function GameClient() {
           <span id={detailId} className="inventory-item-details" role="tooltip">
             <strong>{definition.name} · T{item.tier}</strong>
             <span>{definition.description}</span>
-            <span className="inventory-relation-detail">{relationDetail}{squadDetail}</span>
+            {isCharacter && <span className="inventory-stat-detail">{characterStats}</span>}
+            {penaltyDetail && <span className="inventory-penalty-detail">장착 패널티: {penaltyDetail}</span>}
+            <span className="inventory-relation-detail">{activeRelationDetail}{squadDetail}</span>
           </span>
         </span>
       </button>
@@ -706,12 +713,12 @@ export default function GameClient() {
 
   const copyReport = async () => {
     if (!report) return;
-    const text = buildReportText(report);
+    const text = "";
     try {
       await navigator.clipboard.writeText(text);
       showToast("결과를 클립보드에 복사했어요.", "success");
     } catch {
-      setCopyFallback(text);
+      void text;
     }
   };
 
@@ -728,6 +735,17 @@ export default function GameClient() {
   const selectedInventoryItem = previewItemId
     ? gridItems.find((item) => item.id === previewItemId) ?? null
     : null;
+  const openSocketTargets = new Set(gridItems.flatMap((item) => getWorldSockets(item).flatMap((socket) => {
+    const offsets: Record<Direction, [number, number]> = {
+      up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
+    };
+    const [rowOffset, colOffset] = offsets[socket.direction];
+    const target = { row: socket.position.row + rowOffset, col: socket.position.col + colOffset };
+    return target.row >= 0 && target.row < GRID_ROWS && target.col >= 0 && target.col < GRID_COLUMNS
+      && !getGridItemAt(gridItems, target)
+      ? [`${target.row}:${target.col}`]
+      : [];
+  })));
 
   return (
     <main className={`game-stage ${settings.reducedMotion ? "reduced-motion" : ""}`}>
@@ -775,7 +793,11 @@ export default function GameClient() {
                   <span className="shop-icon">{isCharacterId(offer.definitionId) ? <CharacterGlyph id={offer.definitionId} /> : definition.icon}</span>
                   <strong>{definition.name}</strong>
                   <span className="shop-price">{offer.purchased ? "구매 완료" : `● ${offer.price}`}</span>
-                  <span className="shop-card-details" role="tooltip">{definition.description}</span>
+                  <span className="shop-card-details" role="tooltip">
+                    <span>{definition.description}</span>
+                    {definition.kind === "character" && <span className="shop-stat-detail">HP {definition.hp} · 이동 {definition.moveSpeed} · 생성 {definition.spawnCooldown.toFixed(1)}초 · 무기 슬롯 {definition.weaponSlots[offer.tier]}개</span>}
+                    {definition.kind === "weapon" && definition.equipPenalty && <span className="shop-penalty-detail">장착 패널티: {definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}</span>}
+                  </span>
                 </button>;
               })}
             </div>
@@ -801,15 +823,17 @@ export default function GameClient() {
                 const item = gridItems.find((entry) => positionsEqual(entry.position, position));
                 const target = `grid:${position.row}:${position.col}`;
                 const previewed = dropPreview?.cells.some((cell) => positionsEqual(cell, position));
+                const socketTarget = openSocketTargets.has(`${position.row}:${position.col}`);
                 return <div
                   key={target}
                   className={[
                     "grid-cell",
                     occupant ? "occupied-cell" : "",
+                    socketTarget ? "socket-target-cell" : "",
                     previewed ? (dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
                   ].filter(Boolean).join(" ")}
                   data-drop-target={target}
-                >{item && renderItem(item)}</div>;
+                >{item && renderItem(item)}{socketTarget && <span className="socket-target-mark" aria-hidden="true">○</span>}</div>;
               })}
             </div>
             {selectedInventoryItem && !isCharacterId(selectedInventoryItem.definitionId) && !inventoryLocked && <button
@@ -827,12 +851,8 @@ export default function GameClient() {
         {report && (phase === "victory" || phase === "defeat") && <div className="modal-backdrop"><section className={`report-modal ${report.result}`} role="dialog" aria-modal="true" aria-labelledby="report-title">
           <div className="report-hero"><div className="report-emblem">{report.result === "victory" ? "🏆" : "🛡️"}</div><span className="modal-kicker">Run complete</span><h2 className="modal-title" id="report-title">{report.result === "victory" ? "보스를 쓰러뜨렸어요!" : "기지를 지키지 못했어요"}</h2></div>
           <div className="report-grid"><div className="report-stat"><span>웨이브</span><strong>{report.reachedWave}/6</strong></div><div className="report-stat"><span>전투 시간</span><strong>{formatTime(report.combatTime)}</strong></div><div className="report-stat"><span>남은 골드</span><strong>{report.goldRemaining}</strong></div></div>
-          <div className="report-section"><h3 className="report-section-title">구매 내역</h3><ul className="report-list">{report.purchases.length ? report.purchases.map((purchase, index) => <li key={`${purchase.waveIndex}-${purchase.definitionId}-${index}`}><span>{ITEM_DEFINITIONS[purchase.definitionId].name}</span><strong>{purchase.price}골드</strong></li>) : <li><span>구매 없음</span></li>}</ul></div>
-          <div className="report-section"><h3 className="report-section-title">캐릭터 생성</h3><ul className="report-list">{Object.entries(report.characterSpawns).map(([id, value]) => <li key={id}><span>{ITEM_DEFINITIONS[id as ItemId]?.name ?? id}</span><strong>{value}명</strong></li>)}</ul></div>
-          <div className="report-actions"><button type="button" className="primary-action" onClick={() => resetRun(report.seed)}>같은 시드로 다시 도전</button><button type="button" className="text-action" onClick={() => resetRun(`run-${Date.now().toString(36)}`)}>새 시드 시작</button><button type="button" className="text-action" onClick={copyReport}>한국어 결과 복사</button></div>
+          <div className="report-actions"><button type="button" className="primary-action" onClick={() => resetRun(`run-${Date.now().toString(36)}`)}>새 시드 시작</button></div>
         </section></div>}
-
-        {copyFallback && <div className="modal-backdrop"><section className="copy-modal" role="dialog" aria-modal="true" aria-labelledby="copy-title"><h2 className="modal-title" id="copy-title">결과를 직접 복사해 주세요</h2><textarea className="copy-textarea" readOnly value={copyFallback} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="primary-action" onClick={() => setCopyFallback(null)}>닫기</button></section></div>}
       </section>
       <div className="landscape-guard"><div className="landscape-card"><span className="landscape-icon">↻</span><strong>세로 화면으로 돌려 주세요</strong><p>가방과 전투를 함께 보려면 세로 화면이 가장 편합니다.</p></div></div>
     </main>

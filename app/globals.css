@@ -652,6 +652,17 @@ textarea:focus-visible {
   font-weight: 800;
 }
 
+.inventory-stat-detail {
+  color: #d7e9ff;
+  font-weight: 750;
+}
+
+.inventory-penalty-detail,
+.shop-penalty-detail {
+  color: #ffbd8f;
+  font-weight: 800;
+}
+
 .inventory-item-details.tooltip-above {
   bottom: calc(100% + 6px);
 }
@@ -1585,6 +1596,16 @@ textarea:focus-visible {
   opacity: 1;
 }
 
+.shop-card-details {
+  display: grid;
+  gap: 3px;
+}
+
+.shop-stat-detail {
+  color: #d7e9ff;
+  font-weight: 750;
+}
+
 .shop-selection {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 104px;
@@ -1665,23 +1686,20 @@ textarea:focus-visible {
 .connection-mark {
   position: absolute;
   z-index: 7;
-  display: grid;
-  width: 12px;
-  height: 12px;
-  place-items: center;
-  color: #fff;
-  font-family: Arial, sans-serif;
-  font-size: 12px;
-  font-weight: 900;
-  line-height: 1;
+  width: 14px;
+  height: 4px;
+  border-radius: 999px;
+  background: #6ff5e2;
+  box-shadow: 0 0 7px rgba(111,245,226,.9);
+  color: transparent;
   pointer-events: none;
   text-shadow: 0 1px 2px #000;
 }
 
-.connection-up { top: -2px; left: calc(50% - 6px); }
-.connection-right { top: calc(50% - 6px); right: -2px; }
-.connection-down { bottom: -2px; left: calc(50% - 6px); }
-.connection-left { top: calc(50% - 6px); left: -2px; }
+.connection-up { top: -2px; left: calc(50% - 7px); }
+.connection-right { top: calc(50% - 7px); right: -5px; transform: rotate(90deg); }
+.connection-down { bottom: -2px; left: calc(50% - 7px); }
+.connection-left { top: calc(50% - 7px); left: -5px; transform: rotate(90deg); }
 
 .spawn-linked-flash .item-card {
   box-shadow: inset 0 0 0 2px rgba(255,255,255,.9), 0 0 10px rgba(255,244,197,.55);
@@ -1892,6 +1910,10 @@ textarea:focus-visible {
   box-shadow: inset 0 0 0 2px #fff, inset 0 -4px 0 rgba(0,0,0,.18), 0 3px 7px rgba(0,0,0,.3);
 }
 
+.grid-item.linked-active .item-segment {
+  box-shadow: inset 0 0 0 2px rgba(90,238,217,.72), inset 0 -4px 0 rgba(0,0,0,.18), 0 0 8px rgba(90,238,217,.2);
+}
+
 .grid-item .item-icon,
 .grid-item .spawn-cooldown-fill,
 .grid-item .inventory-item-details {
@@ -1911,6 +1933,25 @@ textarea:focus-visible {
 
 .grid-cell.occupied-cell {
   background: rgba(20, 16, 31, 0.58);
+}
+
+.grid-cell.socket-target-cell {
+  border-color: rgba(111,245,226,.54);
+  background: radial-gradient(circle at 50% 50%, rgba(111,245,226,.14), rgba(14,11,23,.4) 62%);
+}
+
+.socket-target-mark {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #aaf8eb;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 0 8px rgba(90,238,217,.75);
 }
 
 .grid-cell.drop-valid {

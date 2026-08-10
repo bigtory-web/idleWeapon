@@ -21,6 +21,7 @@ import {
   deriveSpawnerBlueprints,
   dropItemOnGrid,
   findFirstPlacement,
+  getActiveWeaponConnections,
   getAdjacentWeaponConnections,
   getCharactersSharingWeapon,
   getOccupiedCells,
@@ -28,6 +29,7 @@ import {
   moveGridItem,
   placeRewardInFirstEmptyCell,
   rotateGridItem,
+  reconcileEquipmentLinks,
 } from "../lib/game/inventory";
 import { createSeededRng, normalizeSeed } from "../lib/game/rng";
 import { generateShopOffers, purchaseShopOffer } from "../lib/game/shop";
@@ -52,6 +54,7 @@ test("data keeps combat stats while adding shapes, squad caps, and 1.5x enemy co
   assert.deepEqual(CHARACTER_HP_AND_POWER_MULTIPLIER, { 1: 1, 2: 1.6, 3: 2.4 });
   assert.deepEqual(CHARACTER_SPAWN_COOLDOWN_MULTIPLIER, { 1: 1, 2: 0.9, 3: 0.8 });
   assert.deepEqual(CHARACTERS.shieldbearer.squadCaps, { 1: 2, 2: 3, 3: 5 });
+  assert.deepEqual(CHARACTERS.shieldbearer.weaponSlots, { 1: 1, 2: 2, 3: 3 });
   assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 4, 2: 6, 3: 9 });
   assert.deepEqual(CHARACTERS.sharpshooter.squadCaps, { 1: 2, 2: 3, 3: 5 });
   assert.deepEqual(Object.values(WEAPONS).map(({ footprint }) => footprint.length), [2, 3, 3, 2]);
@@ -59,6 +62,8 @@ test("data keeps combat stats while adding shapes, squad caps, and 1.5x enemy co
     [13, 0.7, 28], [10, 0.9, 180], [24, 1.4, 32], [8, 1, 150],
   ]);
   assert.deepEqual(WEAPON_DAMAGE_MULTIPLIER, { 1: 1, 2: 1.7, 3: 2.7 });
+  assert.equal(WEAPONS.sword.equipPenalty?.moveSpeedMultiplier, 0.94);
+  assert.equal(WEAPONS.bow.equipPenalty?.hpMultiplier, 0.9);
   assert.deepEqual(WAVE_DEFINITIONS.map(getWaveEnemyTotal), [18, 30, 26, 32, 48, 31]);
   assert.deepEqual(WAVE_DEFINITIONS.map(({ timeLimit }) => timeLimit), [60, 60, 90, 90, 90, 120]);
   assert.equal(ENEMY_HP_MULTIPLIER, 1.35);
@@ -107,7 +112,7 @@ test("sockets, not touching perimeter, determine loadouts and sharing", () => {
   assert.deepEqual(getAdjacentWeaponConnections(left, items).map(({ item: weapon, direction }) => [weapon.id, direction]), [["sword", "right"]]);
 });
 
-test("starting inventory demonstrates shared sword and scout multi-equip", () => {
+test("starting inventory applies tier-one weapon slots to shared contacts", () => {
   const blueprints = deriveSpawnerBlueprints(STARTING_INVENTORY);
   const shieldbearer = blueprints.find(({ characterId }) => characterId === "shieldbearer")!;
   const scout = blueprints.find(({ characterId }) => characterId === "scout")!;
@@ -116,10 +121,21 @@ test("starting inventory demonstrates shared sword and scout multi-equip", () =>
   assert.deepEqual(shieldbearer.weapons, [
     { weaponId: "sword", tier: 1, direction: "right", sourceItemId: "start-sword" },
   ]);
-  assert.deepEqual(scout.weapons, [
-    { weaponId: "bow", tier: 1, direction: "right", sourceItemId: "start-bow" },
-    { weaponId: "sword", tier: 1, direction: "left", sourceItemId: "start-sword" },
-  ]);
+  assert.deepEqual(scout.weapons, [{ weaponId: "bow", tier: 1, direction: "right", sourceItemId: "start-bow" }]);
+});
+
+test("equipment links retain first contact order and expand with character tier", () => {
+  const scout = { ...STARTING_INVENTORY.find((entry) => entry.id === "start-scout")!, tier: 2 as Tier };
+  const items = STARTING_INVENTORY.map((entry) => entry.id === scout.id ? scout : entry);
+  const existing = [
+    { characterId: scout.id, weaponId: "start-sword", connectedAt: 1 },
+    { characterId: scout.id, weaponId: "start-bow", connectedAt: 2 },
+  ];
+  assert.deepEqual(getActiveWeaponConnections(scout, items, existing).map(({ item: weapon }) => weapon.id), ["start-sword", "start-bow"]);
+  const tierOneScout = { ...scout, tier: 1 as Tier };
+  assert.deepEqual(getActiveWeaponConnections(tierOneScout, items.map((entry) => entry.id === scout.id ? tierOneScout : entry), existing).map(({ item: weapon }) => weapon.id), ["start-sword"]);
+  const reconnected = reconcileEquipmentLinks(items, [{ characterId: scout.id, weaponId: "start-bow", connectedAt: 4 }]);
+  assert.deepEqual(reconnected.filter((link) => link.characterId === scout.id).map((link) => [link.weaponId, link.connectedAt]), [["start-bow", 4], ["start-sword", 6]]);
 });
 
 test("shop offers are deterministic and mix character and weapon items", () => {

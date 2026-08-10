@@ -53,9 +53,18 @@ export interface CharacterDefinition extends ItemDefinitionBase {
   rangedDamageMultiplier: number;
   rangeMultiplier: number;
   squadCaps: Record<Tier, number>;
+  /** Number of simultaneously equipped backpack weapons. */
+  weaponSlots: Record<Tier, number>;
 }
 
 export type WeaponAttackKind = "slash" | "projectile" | "smash" | "chain";
+
+export interface EquipPenalty {
+  /** Multiplied for every equipped weapon carrying this penalty. */
+  hpMultiplier?: number;
+  /** Multiplied for every equipped weapon carrying this penalty. */
+  moveSpeedMultiplier?: number;
+}
 
 export interface WeaponDefinition extends ItemDefinitionBase {
   id: WeaponId;
@@ -69,6 +78,7 @@ export interface WeaponDefinition extends ItemDefinitionBase {
   ranged: boolean;
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
+  equipPenalty?: EquipPenalty;
   footprint: FootprintCell[];
   sockets: ConnectionSocket[];
 }
@@ -98,6 +108,13 @@ export interface GridItem {
   position: GridPosition | null;
   rotation?: Rotation;
   sourceLevel?: number;
+}
+
+/** A physical character-to-weapon contact, ordered by when it was created. */
+export interface EquipmentLink {
+  characterId: string;
+  weaponId: string;
+  connectedAt: number;
 }
 
 export interface PendingReward {

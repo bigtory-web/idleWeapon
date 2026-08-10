@@ -48,12 +48,26 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(client, /character-glyph character-glyph-\$\{id\}/);
   assert.match(client, /className="item-segment"/);
   assert.match(client, /className="rotate-item-button"/);
+  assert.match(client, /reconcileEquipmentLinks/);
+  assert.match(client, /getActiveWeaponConnections/);
+  assert.match(client, /className="socket-target-mark"/);
+  assert.match(client, /무기 슬롯/);
+  assert.match(client, /장착 패널티/);
   assert.doesNotMatch(client, /className="tier-badge"|className="item-name-mini"/);
   assert.match(styles, /\.tier-1[^{}]*\{[^}]*#aeb3bc/s);
   assert.match(styles, /\.tier-2[^{}]*\{[^}]*#5bc9ff/s);
   assert.match(styles, /\.tier-3[^{}]*\{[^}]*#ffd15e/s);
   assert.match(styles, /@keyframes spawn-sheen/);
+  assert.match(styles, /\.socket-target-cell/);
+  assert.match(styles, /\.grid-item\.linked-active/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
+});
+
+test("result screen keeps only the fresh-seed restart action", async () => {
+  const client = await readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8");
+  const reportMarkup = client.slice(client.indexOf('className={`report-modal'), client.indexOf('className="landscape-guard"'));
+  assert.match(reportMarkup, /새 시드 시작/);
+  assert.doesNotMatch(reportMarkup, /같은 시드로 다시 도전|한국어 결과 복사|구매 내역|캐릭터 생성/);
 });
 
 test("renderer uses a uniform 2.5D projection and density limits", async () => {

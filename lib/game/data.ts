@@ -69,6 +69,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     rangedDamageMultiplier: 0.9,
     rangeMultiplier: 1,
     squadCaps: { 1: 2, 2: 3, 3: 5 },
+    weaponSlots: { 1: 1, 2: 2, 3: 3 },
   },
   scout: {
     id: "scout",
@@ -85,6 +86,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     rangedDamageMultiplier: 0.85,
     rangeMultiplier: 1,
     squadCaps: { 1: 4, 2: 6, 3: 9 },
+    weaponSlots: { 1: 1, 2: 2, 3: 3 },
   },
   sharpshooter: {
     id: "sharpshooter",
@@ -101,6 +103,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     rangedDamageMultiplier: 1.3,
     rangeMultiplier: 1.3,
     squadCaps: { 1: 2, 2: 3, 3: 5 },
+    weaponSlots: { 1: 1, 2: 2, 3: 3 },
   },
 };
 
@@ -119,6 +122,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "slash",
     maxTargets: 2,
     ranged: false,
+    equipPenalty: { moveSpeedMultiplier: 0.94 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
     sockets: [
       { cell: { row: 0, col: 0 }, direction: "left" },
@@ -139,6 +143,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "projectile",
     maxTargets: 1,
     ranged: true,
+    equipPenalty: { hpMultiplier: 0.9 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 }],
     sockets: [{ cell: { row: 0, col: 1 }, direction: "down" }],
   },
@@ -157,6 +162,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     maxTargets: 4,
     ranged: false,
     effectRadius: 40,
+    equipPenalty: { moveSpeedMultiplier: 0.86 },
     footprint: [{ row: 0, col: 0 }, { row: 1, col: 0 }, { row: 1, col: 1 }],
     sockets: [{ cell: { row: 0, col: 0 }, direction: "up" }],
   },
@@ -175,6 +181,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     maxTargets: 2,
     ranged: true,
     secondaryDamageMultiplier: 0.65,
+    equipPenalty: { hpMultiplier: 0.92 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
     sockets: [
       { cell: { row: 0, col: 0 }, direction: "left" },

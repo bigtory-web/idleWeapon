@@ -4,6 +4,7 @@ import {
   GRID_ROWS,
   type ConnectionSocket,
   type Direction,
+  type EquipmentLink,
   type EquippedWeaponSnapshot,
   type FootprintCell,
   type GridItem,
@@ -212,14 +213,60 @@ export function getAdjacentWeapons(character: GridItem, allItems: readonly GridI
   return getAdjacentWeaponConnections(character, allItems).map(({ item }) => item);
 }
 
-export function getCharactersSharingWeapon(weapon: GridItem, allItems: readonly GridItem[]): GridItem[] {
+function equipmentLinkKey(characterId: string, weaponId: string): string {
+  return `${characterId}:${weaponId}`;
+}
+
+/**
+ * Keeps only contacts that still physically exist and assigns an increasing order
+ * to new contacts. That order survives ordinary placement changes until contact is
+ * broken, which makes the limited weapon slots predictable to the player.
+ */
+export function reconcileEquipmentLinks(items: readonly GridItem[], previous: readonly EquipmentLink[]): EquipmentLink[] {
+  const physical = items
+    .filter((item) => item.position !== null && isCharacterId(item.definitionId))
+    .flatMap((character) => getAdjacentWeaponConnections(character, items)
+      .map(({ item: weapon }) => ({ characterId: character.id, weaponId: weapon.id })));
+  const previousByKey = new Map(previous.map((link) => [equipmentLinkKey(link.characterId, link.weaponId), link]));
+  let nextConnectedAt = previous.reduce((latest, link) => Math.max(latest, link.connectedAt), 0);
+  return physical.map((link) => {
+    const existing = previousByKey.get(equipmentLinkKey(link.characterId, link.weaponId));
+    if (existing) return { ...existing };
+    nextConnectedAt += 1;
+    return { ...link, connectedAt: nextConnectedAt };
+  });
+}
+
+/** Returns only the weapons that fit this character's current tier slot count. */
+export function getActiveWeaponConnections(
+  character: GridItem,
+  allItems: readonly GridItem[],
+  links: readonly EquipmentLink[] = [],
+): AdjacentWeaponConnection[] {
+  if (!character.position || !isCharacterId(character.definitionId)) return [];
+  const linkOrder = new Map(links.map((link) => [equipmentLinkKey(link.characterId, link.weaponId), link.connectedAt]));
+  const fallbackLinks = reconcileEquipmentLinks(allItems, links);
+  const fallbackOrder = new Map(fallbackLinks.map((link) => [equipmentLinkKey(link.characterId, link.weaponId), link.connectedAt]));
+  const slots = CHARACTERS[character.definitionId].weaponSlots[character.tier];
+  return getAdjacentWeaponConnections(character, allItems)
+    .sort((left, right) => (linkOrder.get(equipmentLinkKey(character.id, left.item.id))
+      ?? fallbackOrder.get(equipmentLinkKey(character.id, left.item.id))
+      ?? Number.MAX_SAFE_INTEGER)
+      - (linkOrder.get(equipmentLinkKey(character.id, right.item.id))
+        ?? fallbackOrder.get(equipmentLinkKey(character.id, right.item.id))
+        ?? Number.MAX_SAFE_INTEGER)
+      || compareGridPositions(left.item.position, right.item.position))
+    .slice(0, slots);
+}
+
+export function getCharactersSharingWeapon(weapon: GridItem, allItems: readonly GridItem[], links: readonly EquipmentLink[] = []): GridItem[] {
   if (!weapon.position || !isWeaponId(weapon.definitionId)) return [];
   return allItems.filter((item) => isCharacterId(item.definitionId)
-    && getAdjacentWeaponConnections(item, allItems).some(({ item: candidate }) => candidate.id === weapon.id))
+    && getActiveWeaponConnections(item, allItems, links).some(({ item: candidate }) => candidate.id === weapon.id))
     .sort((left, right) => compareGridPositions(left.position, right.position));
 }
 
-export function deriveSpawnerBlueprints(items: readonly GridItem[]): SpawnerBlueprint[] {
+export function deriveSpawnerBlueprints(items: readonly GridItem[], links: readonly EquipmentLink[] = []): SpawnerBlueprint[] {
   return items.filter((item): item is GridItem & { position: GridPosition } => item.position !== null && isCharacterId(item.definitionId))
     .sort((left, right) => compareGridPositions(left.position, right.position))
     .map((character) => ({
@@ -229,7 +276,7 @@ export function deriveSpawnerBlueprints(items: readonly GridItem[]): SpawnerBlue
       row: character.position.row,
       col: character.position.col,
       maxActive: CHARACTERS[character.definitionId as keyof typeof CHARACTERS].squadCaps[character.tier],
-      weapons: getAdjacentWeaponConnections(character, items).map(({ item, direction }): EquippedWeaponSnapshot => ({
+      weapons: getActiveWeaponConnections(character, items, links).map(({ item, direction }): EquippedWeaponSnapshot => ({
         sourceItemId: item.id,
         weaponId: item.definitionId as WeaponId,
         tier: item.tier,

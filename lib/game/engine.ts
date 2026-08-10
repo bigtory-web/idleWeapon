@@ -62,6 +62,10 @@ interface WeaponDefinitionLike {
   ranged: boolean;
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
+  equipPenalty?: {
+    hpMultiplier?: number;
+    moveSpeedMultiplier?: number;
+  };
 }
 
 interface EnemyDefinitionLike {
@@ -792,7 +796,6 @@ export class CombatEngine {
     const definition = CHARACTERS[blueprint.characterId];
     if (!definition) return;
     const tier = clamp(Math.round(blueprint.tier), 1, 3) as Tier;
-    const maxHp = definition.hp * CHARACTER_HP_AND_POWER_MULTIPLIER[tier];
     const weapons = (blueprint.weapons ?? [])
       .filter((entry) => Boolean(WEAPONS[entry.weaponId]))
       .map((entry) => {
@@ -806,6 +809,14 @@ export class CombatEngine {
           attackPulse: 0,
         } satisfies InternalWeapon;
       });
+    const penalty = weapons.reduce((total, equipped) => {
+      const weaponPenalty = WEAPONS[equipped.definitionId]?.equipPenalty;
+      return {
+        hpMultiplier: total.hpMultiplier * (weaponPenalty?.hpMultiplier ?? 1),
+        moveSpeedMultiplier: total.moveSpeedMultiplier * (weaponPenalty?.moveSpeedMultiplier ?? 1),
+      };
+    }, { hpMultiplier: 1, moveSpeedMultiplier: 1 });
+    const maxHp = definition.hp * CHARACTER_HP_AND_POWER_MULTIPLIER[tier] * penalty.hpMultiplier;
     const y = this.allyLane(blueprint.row, blueprint.col);
     this.allies.push({
       id: this.nextId("ally"),
@@ -818,7 +829,7 @@ export class CombatEngine {
       y,
       hp: maxHp,
       maxHp,
-      moveSpeed: definition.moveSpeed,
+      moveSpeed: definition.moveSpeed * penalty.moveSpeedMultiplier,
       facing: 1,
       flash: 0,
       spawnGlow: 0.42,
