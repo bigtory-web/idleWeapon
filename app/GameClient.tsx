@@ -77,6 +77,12 @@ const SETTINGS_KEY = "worker-grower:settings:v1";
 const REPORTS_KEY = "worker-grower:reports:v1";
 const MAX_REPORTS = 10;
 
+const INVENTORY_CHARACTER_ICONS: Partial<Record<ItemId, string>> = {
+  shieldbearer: "🧔",
+  scout: "🥷",
+  sharpshooter: "🧝",
+};
+
 function cloneStartingInventory(): GridItem[] {
   return STARTING_INVENTORY.map((item) => ({
     ...item,
@@ -196,6 +202,7 @@ export default function GameClient() {
   const [snapshot, setSnapshot] = useState<CombatSnapshot>(() => createIdleSnapshot());
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [previewItemId, setPreviewItemId] = useState<string | null>(null);
   const [levelQueue, setLevelQueue] = useState<number[]>([]);
   const [previewRewardId, setPreviewRewardId] = useState<ItemId | null>(null);
   const [rewardChoices, setRewardChoices] = useState<RunReportRewardChoice[]>([]);
@@ -398,6 +405,7 @@ export default function GameClient() {
     seedRef.current = nextSeed;
     setGridItems(fresh);
     gridRef.current = fresh;
+    setPreviewItemId(null);
     setWaveCursor(0);
     setRewardChoices([]);
     rewardChoicesRef.current = [];
@@ -505,7 +513,12 @@ export default function GameClient() {
   }, [applyInventory, showToast]);
 
   const pointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
-    if (phaseRef.current !== "preparation") return;
+    if (phaseRef.current !== "preparation") {
+      if (event.pointerType !== "mouse") {
+        setPreviewItemId((current) => current === id ? null : id);
+      }
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({ id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, moved: false });
   }, []);
@@ -524,7 +537,12 @@ export default function GameClient() {
 
   const pointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    if (drag.moved) completeDrop(drag.id, dropTarget);
+    if (drag.moved) {
+      setPreviewItemId(null);
+      completeDrop(drag.id, dropTarget);
+    } else if (event.pointerType !== "mouse") {
+      setPreviewItemId((current) => current === drag.id ? null : drag.id);
+    }
     setDrag(null);
     setDropTarget(null);
   }, [completeDrop, drag, dropTarget]);
@@ -552,9 +570,22 @@ export default function GameClient() {
   const renderItem = (item: GridItem) => {
     const definition = ITEM_DEFINITIONS[item.definitionId];
     const isCharacter = definition.kind === "character";
-    const linked = isCharacter
-      ? getAdjacentWeapons(item, gridItems).length > 0
-      : getCharactersSharingWeapon(item, gridItems).length > 0;
+    const adjacentWeapons = isCharacter ? getAdjacentWeapons(item, gridItems) : [];
+    const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems);
+    const linked = isCharacter ? adjacentWeapons.length > 0 : sharingCharacters.length > 0;
+    const inventoryIcon = isCharacter
+      ? INVENTORY_CHARACTER_ICONS[item.definitionId] ?? "🧑"
+      : definition.icon;
+    const relationDetail = isCharacter
+      ? `다음 생성 무기: ${adjacentWeapons.length > 0 ? adjacentWeapons.map((weapon) => ITEM_DEFINITIONS[weapon.definitionId].name).join(", ") : "맨손"}`
+      : `공유 캐릭터: ${sharingCharacters.length}명`;
+    const tooltipVertical = item.position?.row === 0 ? "tooltip-below" : "tooltip-above";
+    const tooltipHorizontal = (item.position?.col ?? 0) <= 1
+      ? "tooltip-left"
+      : (item.position?.col ?? 0) >= GRID_COLUMNS - 2
+        ? "tooltip-right"
+        : "tooltip-center";
+    const detailId = `item-detail-${item.id}`;
     const spawnRatio = isCharacter && phase === "combat"
       ? ((snapshot.elapsed % (definition.spawnCooldown * ([1, 0.9, 0.8][item.tier - 1] ?? 1))) / (definition.spawnCooldown * ([1, 0.9, 0.8][item.tier - 1] ?? 1))) * 100
       : 100;
@@ -562,22 +593,28 @@ export default function GameClient() {
       <button
         key={item.id}
         type="button"
-        className={`grid-item item-kind-${definition.kind} ${drag?.id === item.id ? "dragging" : ""}`}
+        className={`grid-item item-kind-${definition.kind} ${drag?.id === item.id ? "dragging" : ""} ${previewItemId === item.id ? "previewing" : ""}`}
         style={itemStyle(definition)}
         aria-label={`${definition.name} ${item.tier}티어${isLocked ? ", 전투 중 이동 잠김" : ", 드래그 또는 방향키로 이동"}`}
-        disabled={isLocked}
+        aria-describedby={detailId}
+        aria-disabled={isLocked}
+        aria-expanded={previewItemId === item.id}
         onPointerDown={(event) => pointerDown(event, item.id)}
         onPointerMove={pointerMove}
         onPointerUp={pointerUp}
-        onPointerCancel={() => { setDrag(null); setDropTarget(null); }}
+        onPointerCancel={() => { setDrag(null); setDropTarget(null); setPreviewItemId(null); }}
         onKeyDown={(event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
           {linked && <span className="linked-mark" aria-hidden="true">○</span>}
           <span className="tier-badge">T{item.tier}</span>
-          <span className="item-icon" aria-hidden="true">{definition.icon}</span>
-          <span className="item-name-mini">{definition.name}</span>
+          <span className="item-icon" aria-hidden="true">{inventoryIcon}</span>
           {isCharacter && <span className="spawn-meter" aria-hidden="true"><span className="spawn-fill" style={{ width: `${spawnRatio}%` }} /></span>}
+          <span id={detailId} className={`inventory-item-details ${tooltipVertical} ${tooltipHorizontal}`} role="tooltip">
+            <strong>{definition.name} · T{item.tier}</strong>
+            <span>{definition.description}</span>
+            <span className="inventory-relation-detail">{relationDetail}</span>
+          </span>
         </span>
       </button>
     );
@@ -603,11 +640,14 @@ export default function GameClient() {
             <div className="brand-copy"><p className="eyebrow">Backpack Battalion</p><h1 className="brand-title">일꾼 키우기</h1></div>
           </div>
           <div className="utility-bar">
-            <button type="button" className="pause-button" aria-label={manualPaused ? "전투 계속" : "전투 일시정지"} aria-pressed={manualPaused} disabled={phase !== "combat"} onClick={togglePause}>{manualPaused ? "▶" : "Ⅱ"}</button>
-            <button type="button" className="icon-button" aria-label={settings.muted ? "소리 켜기" : "음소거"} aria-pressed={settings.muted} onClick={() => setSettings((current) => ({ ...current, muted: !current.muted }))}>{settings.muted ? "🔇" : "🔊"}</button>
             <button type="button" className="icon-button" aria-label="게임 설정" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>⚙</button>
           </div>
-          {settingsOpen && <div className="settings-popover"><h2 className="settings-title">게임 설정</h2><button type="button" className="settings-option" onClick={() => setSettings((current) => ({ ...current, muted: !current.muted }))}><span>효과음</span><span className={`toggle-track ${!settings.muted ? "on" : ""}`} /></button><button type="button" className="settings-option" onClick={() => setSettings((current) => ({ ...current, reducedMotion: !current.reducedMotion }))}><span>모션 줄이기</span><span className={`toggle-track ${settings.reducedMotion ? "on" : ""}`} /></button></div>}
+          {settingsOpen && <div className="settings-popover">
+            <h2 className="settings-title">게임 설정</h2>
+            <button type="button" className="settings-option" aria-pressed={!settings.muted} onClick={() => setSettings((current) => ({ ...current, muted: !current.muted }))}><span>효과음</span><span className={`toggle-track ${!settings.muted ? "on" : ""}`} /></button>
+            <button type="button" className="settings-option" aria-pressed={manualPaused} disabled={phase !== "combat"} onClick={togglePause}><span>{manualPaused ? "계속하기" : "일시 정지"}</span><span className={`toggle-track ${manualPaused ? "on" : ""}`} /></button>
+            <button type="button" className="settings-option" aria-pressed={settings.reducedMotion} onClick={() => setSettings((current) => ({ ...current, reducedMotion: !current.reducedMotion }))}><span>모션 줄이기</span><span className={`toggle-track ${settings.reducedMotion ? "on" : ""}`} /></button>
+          </div>}
         </header>
 
         <section className="battle-panel" aria-label="자동 전투 화면">
@@ -617,10 +657,10 @@ export default function GameClient() {
               <div className="hud-cluster"><div className="hud-pill"><span className="hud-label">Wave</span><span className="hud-value">{currentWave?.index ?? 6}/6</span></div><div className="hud-pill"><span className="hud-label">남은 시간</span><span className={`hud-value ${timeRemaining < 10 && phase === "combat" ? "danger" : ""}`}>{formatTime(timeRemaining)}</span></div></div>
               <div className="hud-pill base-health"><div className="health-line"><span className="hud-label">기지 HP</span><span className="hud-value">{Math.ceil(snapshot.baseHp)}</span></div><div className="mini-meter"><div className="meter-fill" style={{ width: `${Math.max(0, snapshot.baseHp)}%` }} /></div></div>
             </div>
-            <div className="battle-status"><div className="spawn-summary">아군 {snapshot.allies.length} · 적 {snapshot.enemies.length} · {currentWave?.name}</div><span className="speed-badge">×1</span></div>
+            <div className="battle-status"><div className="spawn-summary">{currentWave?.name}</div><span className="speed-badge">×1</span></div>
           </div>
           <div className="xp-strip"><span className="level-orb">{snapshot.playerLevel}</span><div className="xp-meter"><div className="xp-fill" style={{ width: `${xpRatio}%` }} /></div><span className="xp-copy">{snapshot.playerLevel >= MAX_PLAYER_LEVEL ? "MAX" : `${snapshot.playerXp}/${nextXp}`}</span></div>
-          {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay"><div className="battle-overlay-card"><strong>{phase === "preparation" ? `웨이브 ${currentWave?.index ?? 1}` : phase === "transition" ? "전선 정리 중…" : "일시정지"}</strong><p>{phase === "preparation" ? "캐릭터 옆에 무기를 붙이면 그 무기를 든 일꾼이 생성돼요." : phase === "transition" ? "살아남은 일꾼이 복귀하고 자동 합성을 확인합니다." : "준비되면 상단의 재생 버튼을 눌러 주세요."}</p>{phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>웨이브 시작</button>}</div></div>}
+          {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay"><div className="battle-overlay-card"><strong>{phase === "preparation" ? `웨이브 ${currentWave?.index ?? 1}` : phase === "transition" ? "전선 정리 중…" : "일시정지"}</strong><p>{phase === "preparation" ? "캐릭터 옆에 무기를 붙이면 그 무기를 든 일꾼이 생성돼요." : phase === "transition" ? "살아남은 일꾼이 복귀하고 자동 합성을 확인합니다." : "설정에서 계속하기를 눌러 주세요."}</p>{phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>웨이브 시작</button>}</div></div>}
         </section>
 
         <section className="command-panel" aria-label="가방 편성">

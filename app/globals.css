@@ -609,6 +609,85 @@ textarea:focus-visible {
   transform: translateY(-1px);
 }
 
+.item-kind-character .item-icon {
+  font-size: clamp(23px, 7.5vw, 31px);
+}
+
+.grid-item:hover,
+.grid-item:focus-visible,
+.grid-item.previewing {
+  z-index: 24;
+}
+
+.inventory-item-details {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  gap: 3px;
+  width: 154px;
+  padding: 8px 9px;
+  visibility: hidden;
+  border: 1px solid rgba(210, 186, 238, 0.42);
+  border-radius: 9px;
+  background: rgba(20, 13, 35, 0.97);
+  box-shadow: 0 8px 18px rgba(5, 2, 12, 0.52);
+  color: #eee7f7;
+  font-size: 9px;
+  line-height: 1.35;
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
+}
+
+.inventory-item-details strong {
+  color: #fff;
+  font-size: 10px;
+}
+
+.inventory-relation-detail {
+  color: var(--cyan);
+  font-weight: 800;
+}
+
+.inventory-item-details.tooltip-above {
+  bottom: calc(100% + 6px);
+}
+
+.inventory-item-details.tooltip-below {
+  top: calc(100% + 6px);
+  transform: translateY(-4px);
+}
+
+.inventory-item-details.tooltip-left {
+  left: -2px;
+}
+
+.inventory-item-details.tooltip-center {
+  left: 50%;
+  margin-left: -77px;
+}
+
+.inventory-item-details.tooltip-right {
+  right: -2px;
+}
+
+.grid-item:focus-visible .inventory-item-details,
+.grid-item.previewing .inventory-item-details {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .grid-item:hover .inventory-item-details {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .item-name-mini {
   position: absolute;
   z-index: 3;
@@ -799,6 +878,12 @@ textarea:focus-visible {
   font-weight: 750;
   text-align: left;
   cursor: pointer;
+}
+
+.settings-option:disabled {
+  color: #746a80;
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .toggle-track {

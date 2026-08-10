@@ -19,6 +19,18 @@ export const DEFAULT_SEED = "prototype-001";
 export const MAX_UNITS = 160;
 export const MAX_PROJECTILES = 400;
 
+/** Global enemy-only tuning: keep wave composition and behavior unchanged. */
+export const ENEMY_HP_MULTIPLIER = 1.35;
+export const ENEMY_DAMAGE_MULTIPLIER = 1.25;
+
+function scaleEnemyHp(baseHp: number): number {
+  return Math.round(baseHp * ENEMY_HP_MULTIPLIER);
+}
+
+function scaleEnemyDamage(baseDamage: number): number {
+  return Math.round(baseDamage * ENEMY_DAMAGE_MULTIPLIER);
+}
+
 export const CHARACTER_HP_AND_POWER_MULTIPLIER: Record<Tier, number> = {
   1: 1,
   2: 1.6,
@@ -161,9 +173,9 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     name: "졸개",
     icon: "👺",
     color: "#90c46b",
-    hp: 45,
+    hp: scaleEnemyHp(45),
     moveSpeed: 22,
-    damage: 7,
+    damage: scaleEnemyDamage(7),
     cooldown: 1,
     range: 24,
     xp: 5,
@@ -173,9 +185,9 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     name: "질주병",
     icon: "🦎",
     color: "#d9e36c",
-    hp: 30,
+    hp: scaleEnemyHp(30),
     moveSpeed: 42,
-    damage: 5,
+    damage: scaleEnemyDamage(5),
     cooldown: 0.7,
     range: 22,
     xp: 4,
@@ -185,9 +197,9 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     name: "갑옷병",
     icon: "🪖",
     color: "#78988e",
-    hp: 110,
+    hp: scaleEnemyHp(110),
     moveSpeed: 16,
-    damage: 12,
+    damage: scaleEnemyDamage(12),
     cooldown: 1.3,
     range: 26,
     xp: 10,
@@ -198,9 +210,9 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     name: "투척병",
     icon: "💀",
     color: "#b6a2dd",
-    hp: 55,
+    hp: scaleEnemyHp(55),
     moveSpeed: 19,
-    damage: 8,
+    damage: scaleEnemyDamage(8),
     cooldown: 1.4,
     range: 145,
     xp: 8,
@@ -210,9 +222,9 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     name: "황혼의 대장",
     icon: "👹",
     color: "#e45a7a",
-    hp: 900,
+    hp: scaleEnemyHp(900),
     moveSpeed: 12,
-    damage: 22,
+    damage: scaleEnemyDamage(22),
     cooldown: 1.2,
     range: 38,
     xp: 50,

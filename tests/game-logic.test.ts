@@ -5,6 +5,8 @@ import {
   CHARACTERS,
   CHARACTER_HP_AND_POWER_MULTIPLIER,
   CHARACTER_SPAWN_COOLDOWN_MULTIPLIER,
+  ENEMY_DAMAGE_MULTIPLIER,
+  ENEMY_HP_MULTIPLIER,
   ENEMIES,
   STARTING_INVENTORY,
   WAVE_DEFINITIONS,
@@ -81,6 +83,22 @@ test("prototype data matches the fixed character, weapon, XP and wave numbers", 
   assert.deepEqual(WAVE_DEFINITIONS.map(getWaveEnemyTotal), [12, 20, 17, 21, 32, 21]);
   assert.deepEqual(WAVE_DEFINITIONS.map(({ timeLimit }) => timeLimit), [60, 60, 90, 90, 90, 120]);
   assert.equal(ENEMIES.boss.isBoss, true);
+});
+
+test("enemy-only difficulty tuning consistently raises durability and damage", () => {
+  assert.equal(ENEMY_HP_MULTIPLIER, 1.35);
+  assert.equal(ENEMY_DAMAGE_MULTIPLIER, 1.25);
+  assert.deepEqual(
+    Object.values(ENEMIES).map(({ hp, damage }) => [hp, damage]),
+    [
+      [61, 9],
+      [41, 6],
+      [149, 15],
+      [74, 10],
+      [1215, 28],
+    ],
+  );
+  assert.deepEqual(WAVE_DEFINITIONS.map(getWaveEnemyTotal), [12, 20, 17, 21, 32, 21]);
 });
 
 test("adjacency only follows direct orthogonal cells and ignores weapon chains", () => {
