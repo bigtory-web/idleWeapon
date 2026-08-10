@@ -66,6 +66,7 @@ interface WeaponDefinitionLike {
     hpMultiplier?: number;
     moveSpeedMultiplier?: number;
   };
+  armorPierce?: number;
 }
 
 interface EnemyDefinitionLike {
@@ -78,6 +79,9 @@ interface EnemyDefinitionLike {
   range: number;
   armor?: number;
   isBoss?: boolean;
+  targetPriority?: "nearest" | "lowest-max-hp";
+  approachMoveMultiplier?: number;
+  baseDamageMultiplier?: number;
 }
 
 interface WeaponBlueprintLike {
@@ -160,6 +164,9 @@ interface EnemyUnit extends BaseUnit {
   range: number;
   armor: number;
   isBoss: boolean;
+  targetPriority: "nearest" | "lowest-max-hp";
+  approachMoveMultiplier: number;
+  baseDamageMultiplier: number;
 }
 
 interface InternalProjectile {
@@ -693,13 +700,15 @@ export class CombatEngine {
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) continue;
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
-      const target = this.closestAlly(enemy.x, enemy.y);
+      const target = enemy.targetPriority === "lowest-max-hp"
+        ? this.lowestMaxHpAlly(enemy.x, enemy.y)
+        : this.closestAlly(enemy.x, enemy.y);
       const targetX = target?.x ?? BASE_X;
       const targetY = target?.y ?? 269;
       const distance = Math.hypot(targetX - enemy.x, targetY - enemy.y);
       enemy.facing = targetX >= enemy.x ? 1 : -1;
       if (distance > enemy.range) {
-        const travel = Math.min(enemy.moveSpeed * dt, Math.max(0, distance - enemy.range));
+        const travel = Math.min(enemy.moveSpeed * enemy.approachMoveMultiplier * dt, Math.max(0, distance - enemy.range));
         this.moveUnitToward(enemy, targetX, targetY, travel);
         continue;
       }
@@ -731,7 +740,7 @@ export class CombatEngine {
         this.damageUnit(target, enemy.damage, enemy.definitionId);
         this.addEffect("hit", target.x, target.y - 8, 0.16);
       } else {
-        this.damageBase(enemy.damage);
+        this.damageBase(enemy.damage * enemy.baseDamageMultiplier);
       }
       enemy.attackCooldown = enemy.cooldownDuration;
     }
@@ -777,7 +786,7 @@ export class CombatEngine {
         .filter((enemy) => enemy.hp > 0 && this.distanceBetween(enemy, target) <= (definition.effectRadius ?? 40))
         .sort((left, right) => this.distanceBetween(left, target) - this.distanceBetween(right, target))
         .slice(0, definition.maxTargets);
-      for (const enemy of targets) this.damageUnit(enemy, damage, definition.id);
+      for (const enemy of targets) this.damageUnit(enemy, damage, definition.id, definition.armorPierce);
       this.addEffect("smash", target.x, target.y, 0.32);
       return true;
     }
@@ -787,7 +796,7 @@ export class CombatEngine {
       .sort((left, right) => this.distanceBetween(left, ally) - this.distanceBetween(right, ally))
       .slice(0, definition.maxTargets);
     if (targets.length === 0) return false;
-    for (const enemy of targets) this.damageUnit(enemy, damage, definition.id);
+    for (const enemy of targets) this.damageUnit(enemy, damage, definition.id, definition.armorPierce);
     this.addEffect("slash", target.x, target.y - 8, 0.2);
     return true;
   }
@@ -874,13 +883,16 @@ export class CombatEngine {
       range: definition.range,
       armor: clamp(definition.armor ?? 0, 0, 0.95),
       isBoss: Boolean(definition.isBoss),
+      targetPriority: definition.targetPriority ?? "nearest",
+      approachMoveMultiplier: Math.max(1, definition.approachMoveMultiplier ?? 1),
+      baseDamageMultiplier: Math.max(1, definition.baseDamageMultiplier ?? 1),
     });
     this.addEffect("spawn", ENEMY_SPAWN_X, y, 0.35);
   }
 
-  private damageUnit(unit: BaseUnit, rawDamage: number, sourceDefinitionId: string): void {
+  private damageUnit(unit: BaseUnit, rawDamage: number, sourceDefinitionId: string, armorPierce = 0): void {
     if (unit.hp <= 0) return;
-    const armor = unit.side === "enemy" ? (unit as EnemyUnit).armor : 0;
+    const armor = unit.side === "enemy" ? Math.max(0, (unit as EnemyUnit).armor - armorPierce) : 0;
     const damage = Math.max(0, finite(rawDamage, 0)) * (1 - armor);
     unit.hp -= damage;
     unit.flash = 0.09;
@@ -965,6 +977,12 @@ export class CombatEngine {
       }
     }
     return result;
+  }
+
+  private lowestMaxHpAlly(originX: number, originY: number): AllyUnit | null {
+    const living = this.allies.filter((ally) => ally.hp > 0);
+    if (living.length === 0) return null;
+    return living.sort((left, right) => left.maxHp - right.maxHp || this.distanceBetween(left, { x: originX, y: originY }) - this.distanceBetween(right, { x: originX, y: originY }))[0] ?? null;
   }
 
   private distanceBetween(left: Pick<BaseUnit, "x" | "y">, right: Pick<BaseUnit, "x" | "y">): number {

@@ -619,20 +619,28 @@ export default function GameClient() {
     const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems, equipmentLinks) : [];
     const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems, equipmentLinks);
     const connectionMarks = isCharacter
-      ? activeConnections.map(({ direction, item: weapon, characterCell }) => ({ direction, row: characterCell.row, col: characterCell.col, key: `${direction}-${weapon.id}` }))
+      ? adjacentConnections.map(({ direction, item: weapon, characterCell }) => ({
+          direction,
+          row: characterCell.row,
+          col: characterCell.col,
+          key: `${direction}-${weapon.id}`,
+          active: activeConnections.some((connection) => connection.item.id === weapon.id),
+        }))
       : getWorldSockets(item).flatMap((socket, index) => {
           const offsets: Record<Direction, [number, number]> = {
             up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
           };
           const [rowOffset, colOffset] = offsets[socket.direction];
           const neighbor = getGridItemAt(gridItems, { row: socket.position.row + rowOffset, col: socket.position.col + colOffset });
-          if (!neighbor || !isCharacterId(neighbor.definitionId) || !item.position
-            || !getActiveWeaponConnections(neighbor, gridItems, equipmentLinks).some(({ item: weapon }) => weapon.id === item.id)) return [];
+          if (!neighbor || !isCharacterId(neighbor.definitionId) || !item.position) return [];
+          const physicalConnection = getAdjacentWeaponConnections(neighbor, gridItems).some(({ item: weapon }) => weapon.id === item.id);
+          if (!physicalConnection) return [];
           return [{
             direction: socket.direction,
             row: socket.position.row - item.position.row,
             col: socket.position.col - item.position.col,
             key: `${socket.direction}-${index}`,
+            active: getActiveWeaponConnections(neighbor, gridItems, equipmentLinks).some(({ item: weapon }) => weapon.id === item.id),
           }];
         });
     const relationDetail = isCharacter
@@ -685,20 +693,30 @@ export default function GameClient() {
         onPointerMove={pointerMove}
         onPointerUp={pointerUp}
         onPointerCancel={() => { setDrag(null); setDropTarget(null); setPreviewItemId(null); }}
+        onMouseEnter={() => setPreviewItemId(item.id)}
+        onMouseLeave={() => setPreviewItemId((current) => current === item.id ? null : current)}
+        onFocus={() => setPreviewItemId(item.id)}
         onKeyDown={(event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
           {geometry.cells.map((cell) => <span
             key={`${cell.row}:${cell.col}`}
-            className="item-segment"
+            className={[
+              "item-segment",
+              !geometry.cells.some((other) => other.row === cell.row - 1 && other.col === cell.col) ? "edge-top" : "",
+              !geometry.cells.some((other) => other.row === cell.row + 1 && other.col === cell.col) ? "edge-bottom" : "",
+              !geometry.cells.some((other) => other.row === cell.row && other.col === cell.col - 1) ? "edge-left" : "",
+              !geometry.cells.some((other) => other.row === cell.row && other.col === cell.col + 1) ? "edge-right" : "",
+            ].filter(Boolean).join(" ")}
             style={{ gridRow: cell.row + 1, gridColumn: cell.col + 1 }}
             aria-hidden="true"
           >{connectionMarks.filter((mark) => mark.row === cell.row && mark.col === cell.col).map((mark) => <span
             key={mark.key}
-            className={`connection-mark connection-${mark.direction}`}
-          >○</span>)}{isCharacter && <span className="segment-character-icon"><CharacterGlyph id={item.definitionId} /></span>}</span>)}
+            className={`connection-mark connection-${mark.direction} ${mark.active ? "connection-active" : "connection-inactive"}`}
+          >○</span>)}</span>)}
           {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
-          {!isCharacter && <span className="item-icon">{definition.icon}</span>}
+          <span className="item-icon">{isCharacter ? <CharacterGlyph id={item.definitionId} /> : definition.icon}</span>
+          {isCharacter && activeConnections.slice(0, 3).map(({ item: weapon }, index) => <span key={weapon.id} className={`equipped-weapon-mini equipped-weapon-mini-${index}`} aria-hidden="true">{ITEM_DEFINITIONS[weapon.definitionId].icon}</span>)}
           <span id={detailId} className="inventory-item-details" role="tooltip">
             <strong>{definition.name} · T{item.tier}</strong>
             <span>{definition.description}</span>
@@ -735,6 +753,10 @@ export default function GameClient() {
   const selectedInventoryItem = previewItemId
     ? gridItems.find((item) => item.id === previewItemId) ?? null
     : null;
+  const selectedDefinition = selectedInventoryItem ? ITEM_DEFINITIONS[selectedInventoryItem.definitionId] : null;
+  const selectedConnections = selectedInventoryItem && selectedDefinition?.kind === "character"
+    ? getActiveWeaponConnections(selectedInventoryItem, gridItems, equipmentLinks)
+    : [];
   const openSocketTargets = new Set(gridItems.flatMap((item) => getWorldSockets(item).flatMap((socket) => {
     const offsets: Record<Direction, [number, number]> = {
       up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
@@ -843,6 +865,16 @@ export default function GameClient() {
               aria-label={`${ITEM_DEFINITIONS[selectedInventoryItem.definitionId].name} 90도 회전`}
             >↻ 회전</button>}
           </div>
+          {selectedInventoryItem && selectedDefinition && <article className="selected-detail-panel" aria-live="polite">
+            <div className={`selected-detail-icon tier-${selectedInventoryItem.tier}`}>{selectedDefinition.kind === "character" ? <CharacterGlyph id={selectedDefinition.id} /> : selectedDefinition.icon}</div>
+            <div className="selected-detail-copy">
+              <strong>{selectedDefinition.name}</strong>
+              <p>{selectedDefinition.description}</p>
+              {selectedDefinition.kind === "character"
+                ? <span>HP {selectedDefinition.hp} · 이동 {selectedDefinition.moveSpeed} · 생성 {selectedDefinition.spawnCooldown.toFixed(1)}초 · 슬롯 {selectedDefinition.weaponSlots[selectedInventoryItem.tier]} · 장착 {selectedConnections.length}</span>
+                : <span>피해 {selectedDefinition.damage} · 사거리 {selectedDefinition.range} · 쿨타임 {selectedDefinition.cooldown.toFixed(1)}초{selectedDefinition.equipPenalty?.hpMultiplier ? ` · 체력 -${Math.round((1 - selectedDefinition.equipPenalty.hpMultiplier) * 100)}%` : ""}{selectedDefinition.equipPenalty?.moveSpeedMultiplier ? ` · 이동 -${Math.round((1 - selectedDefinition.equipPenalty.moveSpeedMultiplier) * 100)}%` : ""}</span>}
+            </div>
+          </article>}
         </section>
 
         <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone === "normal" ? "" : toast.tone}`}>{toast.copy}</div>)}</div>

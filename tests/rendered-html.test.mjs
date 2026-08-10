@@ -46,8 +46,9 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(client, /className="spawn-cooldown-fill"/);
   assert.match(client, /className={`connection-mark connection-/);
   assert.match(client, /character-glyph character-glyph-\$\{id\}/);
-  assert.match(client, /className="item-segment"/);
-  assert.match(client, /className="segment-character-icon"/);
+  assert.match(client, /"item-segment",/);
+  assert.match(client, /equipped-weapon-mini/);
+  assert.match(client, /connection-inactive/);
   assert.match(client, /className="rotate-item-button"/);
   assert.match(client, /reconcileEquipmentLinks/);
   assert.match(client, /getActiveWeaponConnections/);
@@ -61,6 +62,7 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(styles, /@keyframes spawn-sheen/);
   assert.match(styles, /\.socket-target-cell/);
   assert.match(styles, /\.grid-item\.linked-active/);
+  assert.match(styles, /\.selected-detail-panel/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
 });
 

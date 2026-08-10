@@ -165,6 +165,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     maxTargets: 4,
     ranged: false,
     effectRadius: 40,
+    armorPierce: 1,
     equipPenalty: { moveSpeedMultiplier: 0.86 },
     footprint: [{ row: 0, col: 0 }, { row: 1, col: 0 }, { row: 1, col: 1 }],
     sockets: [{ cell: { row: 0, col: 0 }, direction: "up" }],
@@ -221,6 +222,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     damage: scaleEnemyDamage(5),
     cooldown: 0.7,
     range: 22,
+    approachMoveMultiplier: 1.35,
   },
   armored: {
     id: "armored",
@@ -244,6 +246,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     damage: scaleEnemyDamage(8),
     cooldown: 1.4,
     range: 145,
+    targetPriority: "lowest-max-hp",
   },
   boss: {
     id: "boss",
@@ -257,6 +260,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     range: 38,
     armor: 0.1,
     isBoss: true,
+    baseDamageMultiplier: 1.5,
   },
 };
 

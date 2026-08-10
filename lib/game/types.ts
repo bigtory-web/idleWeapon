@@ -81,6 +81,8 @@ export interface WeaponDefinition extends ItemDefinitionBase {
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
   equipPenalty?: EquipPenalty;
+  /** Portion of enemy armour ignored by this weapon (0–1). */
+  armorPierce?: number;
   footprint: FootprintCell[];
   sockets: ConnectionSocket[];
 }
@@ -99,6 +101,12 @@ export interface EnemyDefinition {
   cooldown: number;
   range: number;
   armor?: number;
+  /** Lets a ranged threat seek vulnerable workers instead of the front-most one. */
+  targetPriority?: "nearest" | "lowest-max-hp";
+  /** Pressure units accelerate only while closing the distance. */
+  approachMoveMultiplier?: number;
+  /** Siege enemies deal this multiplier when no worker is blocking the base. */
+  baseDamageMultiplier?: number;
   isBoss?: boolean;
 }
 
