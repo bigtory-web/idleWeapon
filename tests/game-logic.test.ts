@@ -12,10 +12,9 @@ import {
   WAVE_DEFINITIONS,
   WEAPONS,
   WEAPON_DAMAGE_MULTIPLIER,
-  XP_REQUIREMENTS,
   getWaveEnemyTotal,
-  getXpRequirementForLevel,
 } from "../lib/game/data";
+import { CombatEngine } from "../lib/game/engine";
 import {
   autoMergeWeapons,
   deriveSpawnerBlueprints,
@@ -30,7 +29,8 @@ import {
   placeRewardInFirstEmptyCell,
 } from "../lib/game/inventory";
 import { createSeededRng, normalizeSeed } from "../lib/game/rng";
-import type { GridItem, ItemId, PendingReward, Tier } from "../lib/game/types";
+import { generateShopOffers, purchaseShopOffer } from "../lib/game/shop";
+import type { CombatEvent, GridItem, ItemId, PendingReward, ShopOffer, Tier } from "../lib/game/types";
 
 function item(
   id: string,
@@ -50,7 +50,7 @@ function reward(
   return { id, definitionId, tier };
 }
 
-test("prototype data matches the fixed character, weapon, XP and wave numbers", () => {
+test("prototype data keeps combat values and adds fixed gold rewards", () => {
   assert.deepEqual(
     [CHARACTERS.shieldbearer.hp, CHARACTERS.shieldbearer.moveSpeed, CHARACTERS.shieldbearer.spawnCooldown],
     [180, 34, 6],
@@ -76,12 +76,11 @@ test("prototype data matches the fixed character, weapon, XP and wave numbers", 
     ],
   );
   assert.deepEqual(WEAPON_DAMAGE_MULTIPLIER, { 1: 1, 2: 1.7, 3: 2.7 });
-  assert.deepEqual(XP_REQUIREMENTS, [40, 55, 70, 90, 115, 150]);
-  assert.equal(getXpRequirementForLevel(1), 40);
-  assert.equal(getXpRequirementForLevel(7), null);
-
   assert.deepEqual(WAVE_DEFINITIONS.map(getWaveEnemyTotal), [12, 20, 17, 21, 32, 21]);
   assert.deepEqual(WAVE_DEFINITIONS.map(({ timeLimit }) => timeLimit), [60, 60, 90, 90, 90, 120]);
+  assert.deepEqual(WAVE_DEFINITIONS.map(({ clearGold }) => clearGold), [8, 10, 12, 14, 16, 0]);
+  assert.deepEqual(Object.values(WEAPONS).map(({ shopPrice }) => shopPrice), [5, 5, 6, 6]);
+  assert.deepEqual(Object.values(CHARACTERS).map(({ shopPrice }) => shopPrice), [9, 7, 8]);
   assert.equal(ENEMIES.boss.isBoss, true);
 });
 
@@ -140,12 +139,75 @@ test("starting inventory derives shared sword and the scout's two-weapon snapsho
   const scout = blueprints.find(({ characterId }) => characterId === "scout");
 
   assert.deepEqual(shieldbearer?.weapons, [
-    { weaponId: "sword", tier: 1, direction: "right" },
+    { weaponId: "sword", tier: 1, direction: "right", sourceItemId: "start-sword" },
   ]);
   assert.deepEqual(scout?.weapons, [
-    { weaponId: "bow", tier: 1, direction: "up" },
-    { weaponId: "sword", tier: 1, direction: "left" },
+    { weaponId: "bow", tier: 1, direction: "up", sourceItemId: "start-bow" },
+    { weaponId: "sword", tier: 1, direction: "left", sourceItemId: "start-sword" },
   ]);
+});
+
+test("shop offers are deterministic, unique, and always mix characters and weapons", () => {
+  const first = generateShopOffers("prototype-001", 2);
+  const second = generateShopOffers("prototype-001", 2);
+  assert.deepEqual(first, second);
+  assert.equal(new Set(first.map(({ definitionId }) => definitionId)).size, 3);
+  assert.equal(first.some(({ definitionId }) => definitionId in CHARACTERS), true);
+  assert.equal(first.some(({ definitionId }) => definitionId in WEAPONS), true);
+  for (const offer of first) {
+    assert.equal(offer.price, [...Object.values(CHARACTERS), ...Object.values(WEAPONS)]
+      .find(({ id }) => id === offer.definitionId)?.shopPrice);
+  }
+});
+
+test("shop blocks insufficient gold and permits a full-grid weapon merge", () => {
+  const swordOffer: ShopOffer = {
+    id: "shop-1-sword",
+    waveIndex: 1,
+    definitionId: "sword",
+    tier: 1,
+    price: 5,
+    purchased: false,
+  };
+  assert.equal(purchaseShopOffer([], 4, swordOffer).reason, "not-enough-gold");
+
+  const fullGrid = Array.from({ length: 24 }, (_, index) =>
+    item(`occupied-${index}`, index === 0 ? "sword" : "shieldbearer", Math.floor(index / 6), index % 6),
+  );
+  const result = purchaseShopOffer(fullGrid, 8, swordOffer);
+  assert.equal(result.success, true);
+  assert.equal(result.gold, 3);
+  assert.equal(result.gridItems.length, 24);
+  assert.equal(result.gridItems.find(({ id }) => id === "occupied-0")?.tier, 2);
+});
+
+test("engine exposes real spawner progress and exact connected weapon ids", () => {
+  const engine = new CombatEngine();
+  const events: CombatEvent[] = [];
+  engine.subscribe((event) => events.push(event));
+  engine.startWave({
+    waveIndex: 1,
+    seed: "spawner-test",
+    baseHp: 100,
+    spawners: deriveSpawnerBlueprints(STARTING_INVENTORY),
+    wave: { index: 1, name: "test", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [] }] },
+  });
+
+  const spawnEvents = events.filter((event): event is Extract<CombatEvent, { type: "ally-spawned" }> => event.type === "ally-spawned");
+  assert.deepEqual(spawnEvents.map(({ spawnerId, weaponItemIds }) => [spawnerId, weaponItemIds]), [
+    ["start-shieldbearer", ["start-sword"]],
+    ["start-scout", ["start-bow", "start-sword"]],
+  ]);
+  assert.deepEqual(engine.getSnapshot().spawners.map(({ progress }) => progress), [0, 0]);
+  for (let index = 0; index < 8; index += 1) engine.step(0.25);
+  const progress = engine.getSnapshot().spawners.map(({ progress }) => progress);
+  assert.equal(progress[0]! > 0.32 && progress[0]! < 0.34, true);
+  assert.equal(progress[1]! > 0.52 && progress[1]! < 0.54, true);
+  engine.pause("test");
+  const paused = engine.getSnapshot().spawners.map(({ progress: value }) => value);
+  engine.step(2);
+  assert.deepEqual(engine.getSnapshot().spawners.map(({ progress: value }) => value), paused);
+  engine.dispose();
 });
 
 test("weapon auto-merge chains and keeps the row-major grid survivor", () => {

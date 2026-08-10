@@ -8,11 +8,6 @@ import type {
 export const BATTLEFIELD_WIDTH = 390;
 export const BATTLEFIELD_HEIGHT = 360;
 
-// Keep combat timing/ranges in simulation space while framing the actors as if
-// the camera were 1.5x farther away. This makes the front line easier to read
-// without changing deterministic combat outcomes.
-const UNIT_VISUAL_SCALE = 2 / 3;
-
 export interface BattleRenderOptions {
   width?: number;
   height?: number;
@@ -27,6 +22,7 @@ interface WeaponViewLike {
   tier: 1 | 2 | 3;
   direction: Direction;
   cooldownRatio: number;
+  attackPulse: number;
 }
 
 interface UnitViewLike {
@@ -43,6 +39,7 @@ interface UnitViewLike {
   isBoss?: boolean;
   flash: number;
   spawnGlow: number;
+  visualScale?: number;
   weapons?: WeaponViewLike[];
 }
 
@@ -184,6 +181,25 @@ function normalizeSnapshot(snapshot: CombatSnapshot): SnapshotLike {
   };
 }
 
+export interface ProjectedBattlePoint {
+  x: number;
+  y: number;
+  depth: number;
+  scale: number;
+}
+
+/** Visual-only 2.5D projection. Combat continues to use the original X axis. */
+export function projectBattlePoint(x: number, y: number): ProjectedBattlePoint {
+  const depth = clamp((y - 230) / 60, 0, 1);
+  const perspective = 0.88 + depth * 0.14;
+  return {
+    x: BATTLEFIELD_WIDTH / 2 + (x - BATTLEFIELD_WIDTH / 2) * perspective,
+    y: 194 + depth * 122,
+    depth,
+    scale: 0.52 + depth * 0.14,
+  };
+}
+
 /**
  * Paint a complete combat frame. The renderer is stateless and does not mutate
  * either the canvas element or the simulation snapshot.
@@ -196,25 +212,52 @@ export function renderBattle(
   const snapshot = normalizeSnapshot(combatSnapshot);
   const width = options.width ?? BATTLEFIELD_WIDTH;
   const height = options.height ?? BATTLEFIELD_HEIGHT;
-  const scaleX = context.canvas.width / width;
-  const scaleY = context.canvas.height / height;
-  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) return;
+  const scale = Math.min(context.canvas.width / width, context.canvas.height / height);
+  if (!Number.isFinite(scale) || scale <= 0) return;
+  const offsetX = (context.canvas.width - width * scale) / 2;
+  const offsetY = (context.canvas.height - height * scale) / 2;
 
   context.save();
-  context.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-  context.clearRect(0, 0, width, height);
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+  context.setTransform(scale, 0, 0, scale, offsetX, offsetY);
   drawNightBattlefield(context, snapshot.elapsed, width, height);
 
   context.save();
   drawBase(context, snapshot);
-  drawSpawnEffects(context, snapshot.effects, height);
+  const projectedEffects = snapshot.effects.map((effect) => {
+    const point = projectBattlePoint(effect.x, effect.y);
+    return { ...effect, x: point.x, y: point.y };
+  });
+  drawSpawnEffects(context, projectedEffects, height);
 
   const units = [...snapshot.allies, ...snapshot.enemies]
+    .map((unit) => {
+      const point = projectBattlePoint(unit.x, unit.y);
+      return { ...unit, x: point.x, y: point.y, visualScale: point.scale };
+    })
     .sort((left, right) => left.y - right.y || left.x - right.x);
   for (const unit of units) drawUnitShadow(context, unit);
   for (const unit of units) drawUnit(context, unit, snapshot.elapsed, options.showHealthBars ?? true);
-  for (const projectile of snapshot.projectiles) drawProjectile(context, projectile);
-  drawForegroundEffects(context, snapshot.effects, snapshot.elapsed);
+  for (const projectile of snapshot.projectiles) {
+    const point = projectBattlePoint(projectile.x, projectile.y);
+    const previous = projectBattlePoint(projectile.prevX, projectile.prevY);
+    const target = projectBattlePoint(projectile.targetX, projectile.targetY);
+    drawProjectile(context, {
+      ...projectile,
+      x: point.x,
+      y: point.y,
+      prevX: previous.x,
+      prevY: previous.y,
+      targetX: target.x,
+      targetY: target.y,
+    });
+  }
+  const dense = units.length > 55;
+  const visibleEffects = dense
+    ? projectedEffects.filter((effect) => effect.kind !== "damage" || hashText(effect.id) % 3 === 0)
+    : projectedEffects;
+  drawForegroundEffects(context, visibleEffects, snapshot.elapsed);
   context.restore();
 
   if (snapshot.phase === "paused") drawPauseWash(context, width, height);
@@ -285,28 +328,34 @@ function drawNightBattlefield(
   drawTree(context, 104, 199, 0.7);
   drawTree(context, 285, 183, 0.9);
 
-  const ground = context.createLinearGradient(0, 219, 0, height);
+  const ground = context.createLinearGradient(0, 165, 0, height);
   ground.addColorStop(0, "#60478e");
-  ground.addColorStop(0.72, COLORS.nearGround);
-  ground.addColorStop(1, "#261743");
+  ground.addColorStop(0.68, COLORS.nearGround);
+  ground.addColorStop(1, "#21143b");
   context.fillStyle = ground;
   context.beginPath();
-  context.moveTo(0, 224);
-  context.quadraticCurveTo(105, 208, 195, 224);
-  context.quadraticCurveTo(292, 240, width, 219);
+  context.moveTo(52, 166);
+  context.lineTo(width - 52, 166);
   context.lineTo(width, height);
   context.lineTo(0, height);
   context.closePath();
   context.fill();
 
-  context.strokeStyle = "rgba(190,155,224,.18)";
+  context.strokeStyle = "rgba(205,178,235,.16)";
   context.lineWidth = 1;
-  for (let index = 0; index < 5; index += 1) {
-    const y = 247 + index * 22;
+  for (let index = 0; index < 7; index += 1) {
+    const ratio = index / 6;
+    const y = 178 + ratio * 168;
+    const halfWidth = 150 + ratio * 45;
     context.beginPath();
-    context.moveTo(0, y);
-    context.quadraticCurveTo(95, y - 8, 195, y + 1);
-    context.quadraticCurveTo(292, y + 8, width, y - 2);
+    context.moveTo(195 - halfWidth, y);
+    context.lineTo(195 + halfWidth, y);
+    context.stroke();
+  }
+  for (let index = -4; index <= 4; index += 1) {
+    context.beginPath();
+    context.moveTo(195 + index * 34, 166);
+    context.lineTo(195 + index * 70, height);
     context.stroke();
   }
 
@@ -346,8 +395,10 @@ function drawTree(context: CanvasRenderingContext2D, x: number, y: number, scale
 
 function drawBase(context: CanvasRenderingContext2D, snapshot: SnapshotLike): void {
   const ratio = clamp(snapshot.baseHp / Math.max(1, snapshot.maxBaseHp), 0, 1);
+  const point = projectBattlePoint(29, 260);
   context.save();
-  context.translate(27, 270);
+  context.translate(point.x, point.y);
+  context.scale(0.72, 0.72);
   ellipse(context, 0, 23, 26, 7, "rgba(15,8,31,.42)");
 
   context.fillStyle = "#30254a";
@@ -388,7 +439,7 @@ function drawBase(context: CanvasRenderingContext2D, snapshot: SnapshotLike): vo
 }
 
 function drawUnitShadow(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
-  const scale = (unit.isBoss ? 1.65 : 1) * UNIT_VISUAL_SCALE;
+  const scale = (unit.isBoss ? 1.65 : 1) * (unit.visualScale ?? 0.6);
   ellipse(context, unit.x, unit.y + 3, 12 * scale, 3.6 * scale, "rgba(16,8,30,.32)");
 }
 
@@ -399,12 +450,23 @@ function drawUnit(
   showHealthBars: boolean,
 ): void {
   const seed = hashText(unit.id) % 1000;
-  const bob = Math.sin(elapsed * 7 + seed * 0.03) * 0.8 * UNIT_VISUAL_SCALE;
-  const scale = (unit.isBoss ? 1.55 : 1) * UNIT_VISUAL_SCALE;
+  const visualScale = unit.visualScale ?? 0.6;
+  const bob = Math.sin(elapsed * 7 + seed * 0.03) * 0.8 * visualScale;
+  const scale = (unit.isBoss ? 1.45 : 1) * visualScale;
   context.save();
   context.translate(unit.x, unit.y + bob);
   context.scale(unit.facing * scale, scale);
+  const id = unit.definitionId.toLowerCase();
+  if (/scout/.test(id)) {
+    context.rotate(-0.06 * unit.facing);
+    context.scale(0.92, 0.9);
+  } else if (/sharpshooter|marksman|archer/.test(id)) {
+    context.scale(0.9, 1.08);
+  } else if (/shield|guardian|armored|boss/.test(id)) {
+    context.scale(1.08, 1);
+  }
 
+  drawFactionOutline(context, unit);
   if (unit.side === "ally") drawAllyBody(context, unit);
   else drawEnemyBody(context, unit);
 
@@ -424,6 +486,31 @@ function drawUnit(
   }
 
   if (showHealthBars && (unit.hp < unit.maxHp || unit.isBoss)) drawUnitHealth(context, unit);
+}
+
+function drawFactionOutline(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
+  context.save();
+  context.strokeStyle = unit.side === "enemy" ? "#ff5d63" : "#57d9dc";
+  context.lineWidth = unit.isBoss ? 7 : 5.5;
+  context.lineJoin = "round";
+  context.lineCap = "round";
+  roundedRectPath(context, -9, -18, 18, 19, unit.isBoss ? 3 : 5);
+  context.stroke();
+  context.beginPath();
+  context.ellipse(0, -22, 9, unit.isBoss ? 10 : 9, 0, 0, Math.PI * 2);
+  context.stroke();
+  const id = unit.definitionId.toLowerCase();
+  if (/shield|guardian/.test(id)) {
+    roundedRectPath(context, -18, -17, 11, 19, 4);
+    context.stroke();
+  }
+  if (/throw|ranged/.test(id)) {
+    context.beginPath();
+    context.moveTo(-8, -13);
+    context.lineTo(-15, -23);
+    context.stroke();
+  }
+  context.restore();
 }
 
 function drawAllyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
@@ -483,7 +570,6 @@ function drawAllyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): vo
     context.stroke();
   }
 
-  drawTierPips(context, unit.tier, 0, -40);
 }
 
 function drawEnemyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
@@ -526,26 +612,6 @@ function drawEnemyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): v
   }
 }
 
-function drawTierPips(
-  context: CanvasRenderingContext2D,
-  tier: number,
-  x: number,
-  y: number,
-): void {
-  if (tier <= 1) return;
-  context.save();
-  context.fillStyle = COLORS.gold;
-  context.strokeStyle = COLORS.ink;
-  context.lineWidth = 1;
-  for (let index = 0; index < tier; index += 1) {
-    context.beginPath();
-    context.arc(x + (index - (tier - 1) / 2) * 5, y, 2, 0, Math.PI * 2);
-    context.fill();
-    context.stroke();
-  }
-  context.restore();
-}
-
 function drawFloatingWeapon(
   context: CanvasRenderingContext2D,
   unit: UnitViewLike,
@@ -561,14 +627,17 @@ function drawFloatingWeapon(
   };
   const direction = offsets[weapon.direction] ? weapon.direction : "right";
   const offset = offsets[direction];
-  const pulse = Math.sin(elapsed * 4.5 + hashText(unit.id) * 0.02 + index) * 2 * UNIT_VISUAL_SCALE;
-  const x = unit.x + offset.x * UNIT_VISUAL_SCALE;
-  const y = unit.y + offset.y * UNIT_VISUAL_SCALE + pulse;
+  const unitScale = unit.visualScale ?? 0.6;
+  const bob = Math.sin(elapsed * 4.5 + hashText(unit.id) * 0.02 + index) * 2 * unitScale;
+  const x = unit.x + offset.x * unitScale;
+  const y = unit.y + offset.y * unitScale + bob;
+  const attackPulse = clamp(weapon.attackPulse ?? 0, 0, 1);
+  const glyphScale = (0.45 + attackPulse * 0.4) * (unitScale / 0.6);
 
   context.save();
   context.translate(x, y);
-  context.scale(UNIT_VISUAL_SCALE, UNIT_VISUAL_SCALE);
-  context.globalAlpha = 0.62 + (1 - clamp(weapon.cooldownRatio, 0, 1)) * 0.38;
+  context.scale(glyphScale, glyphScale);
+  context.globalAlpha = 0.7 + attackPulse * 0.3;
   context.shadowColor = weapon.tier === 3 ? "#ffd65c" : weapon.tier === 2 ? "#b78cff" : "#7ce5e2";
   context.shadowBlur = weapon.tier * 2;
   drawWeaponGlyph(context, weapon.definitionId, unit.facing);
@@ -635,23 +704,24 @@ function drawWeaponGlyph(context: CanvasRenderingContext2D, definitionId: string
 }
 
 function drawUnitHealth(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
-  const width = (unit.isBoss ? 38 : 22) * UNIT_VISUAL_SCALE;
-  const height = 4 * UNIT_VISUAL_SCALE;
-  const y = unit.y - (unit.isBoss ? 58 : 47) * UNIT_VISUAL_SCALE;
+  const scale = unit.visualScale ?? 0.6;
+  const width = (unit.isBoss ? 38 : 22) * scale;
+  const height = 4 * scale;
+  const y = unit.y - (unit.isBoss ? 58 : 47) * scale;
   const ratio = clamp(unit.hp / Math.max(1, unit.maxHp), 0, 1);
   context.fillStyle = "rgba(22,11,37,.78)";
   roundedRectPath(context, unit.x - width / 2, y, width, height, height / 2);
   context.fill();
   if (ratio > 0) {
     context.fillStyle = ratio > 0.45 ? "#6ee0a1" : COLORS.red;
-    const inset = UNIT_VISUAL_SCALE;
+    const inset = scale;
     roundedRectPath(
       context,
       unit.x - width / 2 + inset,
       y + inset,
       Math.max(0, width - inset * 2) * ratio,
       Math.max(0, height - inset * 2),
-      UNIT_VISUAL_SCALE,
+      scale,
     );
     context.fill();
   }

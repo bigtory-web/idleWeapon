@@ -207,6 +207,7 @@ export function deriveSpawnerBlueprints(items: readonly GridItem[]): SpawnerBlue
       col: character.position.col,
       weapons: getAdjacentWeaponConnections(character, items).map(
         ({ item, direction }): EquippedWeaponSnapshot => ({
+          sourceItemId: item.id,
           weaponId: item.definitionId as WeaponId,
           tier: item.tier,
           direction,

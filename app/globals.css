@@ -1353,6 +1353,490 @@ textarea:focus-visible {
   }
 }
 
+/* Gold-shop / compact HUD revision */
+.top-chrome {
+  min-height: 44px;
+  padding: 5px 9px 5px 11px;
+}
+
+.header-combat-info {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 18px;
+}
+
+.header-combat-info > div {
+  display: grid;
+  gap: 1px;
+}
+
+.header-combat-info span {
+  color: #ad9fc6;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.header-combat-info strong {
+  color: #f7f1ff;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.header-combat-info strong.danger {
+  color: #ff7283;
+}
+
+.top-chrome .icon-button {
+  width: 32px;
+  height: 32px;
+}
+
+.settings-popover {
+  top: 42px;
+}
+
+.hud-layer,
+.xp-strip {
+  display: none;
+}
+
+.battle-canvas-wrap {
+  bottom: 31px;
+}
+
+.base-hp-strip {
+  position: absolute;
+  z-index: 12;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  height: 32px;
+  gap: 3px;
+  padding: 4px 11px 6px;
+  border-top: 1px solid rgba(255,255,255,.13);
+  background: rgba(14, 9, 27, .94);
+}
+
+.base-hp-copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #cfc3de;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.base-hp-copy strong {
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.base-hp-meter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(4, 3, 10, .72);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.55);
+}
+
+.base-hp-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #31b7ab, #67ead8);
+  transition: width 160ms linear;
+}
+
+.base-hp-meter > span.danger {
+  background: linear-gradient(90deg, #dc4055, #ff7484);
+}
+
+.battle-overlay {
+  bottom: 31px;
+}
+
+.shop-panel {
+  position: absolute;
+  z-index: 10;
+  inset: 0 0 31px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 15px 13px 11px;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(149, 92, 232, .28), transparent 42%),
+    rgba(20, 13, 37, .96);
+}
+
+.shop-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.shop-heading > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.shop-heading span {
+  color: #bcaed1;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.shop-heading strong {
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.gold-balance {
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 207, 91, .38);
+  border-radius: 999px;
+  background: rgba(78, 51, 18, .54);
+  color: #ffd76b;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+}
+
+.shop-offers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.shop-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 112px;
+  place-items: center;
+  align-content: center;
+  gap: 5px;
+  padding: 9px 4px;
+  border: 2px solid #9da3ad;
+  border-radius: 14px;
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--item-color) 26%, #3d3152), #171120 72%);
+  color: #f5effb;
+  cursor: pointer;
+}
+
+.shop-card.selected {
+  box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px rgba(94, 234, 212, .38);
+}
+
+.shop-card.purchased {
+  opacity: .45;
+  cursor: default;
+}
+
+.shop-card strong {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-icon {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  font-size: 32px;
+}
+
+.shop-price {
+  color: #ffd66b;
+  font-size: 9px;
+  font-weight: 950;
+}
+
+.shop-card-details {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 5px);
+  left: 0;
+  padding: 7px;
+  visibility: hidden;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 8px;
+  background: rgba(12, 8, 23, .98);
+  color: #ddd2e8;
+  font-size: 8px;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shop-card:hover .shop-card-details,
+.shop-card:focus-visible .shop-card-details {
+  visibility: visible;
+  opacity: 1;
+}
+
+.shop-selection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 11px;
+  background: rgba(6,4,13,.28);
+}
+
+.shop-selection > span {
+  color: #c7b9d7;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.buy-button {
+  min-height: 31px;
+  border: 1px solid rgba(255,220,126,.38);
+  border-radius: 9px;
+  background: linear-gradient(#ffd267, #e69a36);
+  color: #3d230e;
+  font-size: 9px;
+  font-weight: 950;
+}
+
+.buy-button:disabled {
+  border-color: rgba(255,255,255,.08);
+  background: #4c4354;
+  color: #89818e;
+}
+
+.shop-next-button {
+  min-height: 38px;
+  margin-top: auto;
+}
+
+.item-card {
+  overflow: hidden;
+  border-color: #9da3ad;
+}
+
+.tier-1 .item-card,
+.shop-card.tier-1 {
+  border-color: #aeb3bc;
+}
+
+.tier-2 .item-card,
+.shop-card.tier-2 {
+  border-color: #5bc9ff;
+}
+
+.tier-3 .item-card,
+.shop-card.tier-3 {
+  border-color: #ffd15e;
+}
+
+.grid-item:focus-visible .item-card,
+.grid-item.previewing .item-card {
+  box-shadow: inset 0 0 0 2px #fff, inset 0 -4px 0 rgba(0,0,0,.18), 0 3px 7px rgba(0,0,0,.3);
+}
+
+.spawn-cooldown-fill {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--spawn-progress, 0%);
+  background: linear-gradient(to top, color-mix(in srgb, var(--item-color) 42%, transparent), color-mix(in srgb, var(--item-color) 12%, transparent));
+  border-top: 1px solid color-mix(in srgb, var(--item-color) 65%, white);
+  pointer-events: none;
+  transition: height 100ms linear;
+}
+
+.connection-mark {
+  position: absolute;
+  z-index: 7;
+  display: grid;
+  width: 12px;
+  height: 12px;
+  place-items: center;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+
+.connection-up { top: -2px; left: calc(50% - 6px); }
+.connection-right { top: calc(50% - 6px); right: -2px; }
+.connection-down { bottom: -2px; left: calc(50% - 6px); }
+.connection-left { top: calc(50% - 6px); left: -2px; }
+
+.spawn-linked-flash .item-card {
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.9), 0 0 10px rgba(255,244,197,.55);
+}
+
+.spawn-linked-flash .item-card::after {
+  position: absolute;
+  z-index: 8;
+  top: -35%;
+  bottom: -35%;
+  width: 18px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.85), transparent);
+  content: "";
+  pointer-events: none;
+  transform: rotate(22deg);
+  animation: spawn-sheen 180ms ease-out both;
+}
+
+@keyframes spawn-sheen {
+  from { left: -35%; opacity: 0; }
+  30% { opacity: 1; }
+  to { left: 120%; opacity: 0; }
+}
+
+.character-glyph {
+  position: relative;
+  display: block;
+  width: 36px;
+  height: 42px;
+  filter: drop-shadow(0 2px 1px rgba(0,0,0,.45));
+}
+
+.character-glyph span {
+  position: absolute;
+  display: block;
+}
+
+.glyph-head {
+  top: 5px;
+  left: 11px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #21172c;
+  border-radius: 48% 48% 44% 44%;
+  background: #e8b183;
+}
+
+.glyph-body {
+  right: 8px;
+  bottom: 2px;
+  left: 8px;
+  height: 24px;
+  border: 2px solid #21172c;
+  border-radius: 7px 7px 4px 4px;
+  background: #47736a;
+}
+
+.character-glyph-shieldbearer .glyph-body {
+  right: 4px;
+  left: 4px;
+  background: #53697c;
+}
+
+.character-glyph-shieldbearer .glyph-gear {
+  bottom: 5px;
+  left: 0;
+  width: 13px;
+  height: 23px;
+  border: 2px solid #202038;
+  border-radius: 7px 7px 10px 10px;
+  background: #77a9d0;
+}
+
+.character-glyph-scout {
+  transform: rotate(-3deg) scale(.9);
+}
+
+.character-glyph-scout .glyph-head {
+  background: #9a7ac2;
+}
+
+.character-glyph-scout .glyph-body {
+  background: #3f725a;
+  transform: skewX(-6deg);
+}
+
+.character-glyph-scout .glyph-gear {
+  top: 4px;
+  left: 8px;
+  width: 20px;
+  height: 10px;
+  border-radius: 9px 9px 3px 3px;
+  background: #29203a;
+}
+
+.character-glyph-sharpshooter .glyph-head {
+  top: 3px;
+}
+
+.character-glyph-sharpshooter .glyph-body {
+  right: 10px;
+  left: 10px;
+  height: 27px;
+  background: #6e5748;
+}
+
+.character-glyph-sharpshooter .glyph-gear {
+  top: 0;
+  left: 8px;
+  width: 20px;
+  height: 17px;
+  border-radius: 12px 12px 4px 4px;
+  background: #3a2b48;
+}
+
+.inventory-item-details {
+  bottom: calc(100% + 6px);
+  left: 50%;
+  margin-left: -77px;
+}
+
+.grid-cell:nth-child(-n+6) .inventory-item-details {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+.grid-cell:nth-child(6n+1) .inventory-item-details {
+  left: -2px;
+  margin-left: 0;
+}
+
+.grid-cell:nth-child(6n) .inventory-item-details {
+  right: -2px;
+  left: auto;
+  margin-left: 0;
+}
+
+.reduced-motion .spawn-linked-flash .item-card::after {
+  display: none;
+}
+
+@media (max-height: 740px) {
+  .top-chrome {
+    min-height: 44px;
+  }
+
+  .shop-panel {
+    padding-top: 9px;
+    gap: 6px;
+  }
+
+  .shop-card {
+    min-height: 94px;
+  }
+}
+
 .game-stage.reduced-motion *,
 .game-stage.reduced-motion *::before,
 .game-stage.reduced-motion *::after {

@@ -1,4 +1,14 @@
-import { CHARACTERS as RAW_CHARACTERS, ENEMIES as RAW_ENEMIES, WEAPONS as RAW_WEAPONS } from "./data";
+import {
+  CHARACTERS as RAW_CHARACTERS,
+  CHARACTER_HP_AND_POWER_MULTIPLIER,
+  CHARACTER_SPAWN_COOLDOWN_MULTIPLIER,
+  ENEMIES as RAW_ENEMIES,
+  MAX_PROJECTILES,
+  MAX_UNITS,
+  UNARMED_ATTACK,
+  WEAPONS as RAW_WEAPONS,
+  WEAPON_DAMAGE_MULTIPLIER,
+} from "./data";
 import type {
   CombatEvent,
   CombatSnapshot,
@@ -18,14 +28,10 @@ const LOGICAL_WIDTH = 390;
 const ALLY_SPAWN_X = 62;
 const ENEMY_SPAWN_X = 354;
 const BASE_X = 29;
-const UNIT_CAP = 160;
-const PROJECTILE_CAP = 400;
+const UNIT_CAP = MAX_UNITS;
+const PROJECTILE_CAP = MAX_PROJECTILES;
 const FIXED_STEP = 1 / 60;
 const SNAPSHOT_INTERVAL = 0.1;
-const XP_THRESHOLDS = [40, 55, 70, 90, 115, 150] as const;
-const CHARACTER_TIER_MULTIPLIER = [1, 1.6, 2.4] as const;
-const CHARACTER_COOLDOWN_MULTIPLIER = [1, 0.9, 0.8] as const;
-const WEAPON_TIER_MULTIPLIER = [1, 1.7, 2.7] as const;
 
 type Tier = 1 | 2 | 3;
 type Direction = "up" | "down" | "left" | "right";
@@ -52,6 +58,10 @@ interface WeaponDefinitionLike {
   cooldown: number;
   range: number;
   attackKind: AttackKind;
+  maxTargets: number;
+  ranged: boolean;
+  secondaryDamageMultiplier?: number;
+  effectRadius?: number;
 }
 
 interface EnemyDefinitionLike {
@@ -62,12 +72,12 @@ interface EnemyDefinitionLike {
   damage: number;
   cooldown: number;
   range: number;
-  xp: number;
   armor?: number;
   isBoss?: boolean;
 }
 
 interface WeaponBlueprintLike {
+  sourceItemId: string;
   weaponId: string;
   tier: Tier;
   direction: Direction;
@@ -90,6 +100,7 @@ interface SpawnGroupLike {
 interface WaveDefinitionLike {
   index: number;
   timeLimit: number;
+  clearGold: number;
   groups: SpawnGroupLike[];
 }
 
@@ -97,8 +108,6 @@ interface WaveStartInputLike {
   waveIndex: number;
   seed: string;
   baseHp: number;
-  playerXp: number;
-  playerLevel: number;
   spawners: SpawnerBlueprintLike[];
   wave: WaveDefinitionLike;
 }
@@ -109,6 +118,7 @@ interface InternalWeapon {
   direction: Direction;
   cooldown: number;
   cooldownDuration: number;
+  attackPulse: number;
 }
 
 interface BaseUnit {
@@ -142,7 +152,6 @@ interface EnemyUnit extends BaseUnit {
   attackCooldown: number;
   cooldownDuration: number;
   range: number;
-  xp: number;
   armor: number;
   isBoss: boolean;
 }
@@ -177,6 +186,7 @@ interface InternalEffect {
 interface InternalSpawner {
   blueprint: SpawnerBlueprintLike;
   cooldown: number;
+  cooldownDuration: number;
 }
 
 interface PendingEnemy {
@@ -208,10 +218,6 @@ const ENEMIES = RAW_ENEMIES as unknown as Record<string, EnemyDefinitionLike>;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
-}
-
-function tierIndex(tier: Tier): 0 | 1 | 2 {
-  return (clamp(Math.round(tier), 1, 3) - 1) as 0 | 1 | 2;
 }
 
 function finite(value: number, fallback: number): number {
@@ -248,7 +254,7 @@ class SeededRandom {
 }
 
 function isRangedWeapon(weapon: WeaponDefinitionLike): boolean {
-  return weapon.attackKind === "projectile" || weapon.attackKind === "chain" || weapon.range > 70;
+  return weapon.ranged;
 }
 
 function normalizeStartInput(input: WaveStartInput): WaveStartInputLike {
@@ -257,12 +263,11 @@ function normalizeStartInput(input: WaveStartInput): WaveStartInputLike {
     waveIndex: Math.max(1, Math.round(finite(value.waveIndex, value.wave?.index ?? 1))),
     seed: String(value.seed || "prototype-001"),
     baseHp: clamp(finite(value.baseHp, 100), 0, 100),
-    playerXp: Math.max(0, finite(value.playerXp, 0)),
-    playerLevel: clamp(Math.round(finite(value.playerLevel, 1)), 1, 7),
     spawners: Array.isArray(value.spawners) ? value.spawners : [],
     wave: {
       index: Math.max(1, Math.round(finite(value.wave?.index, value.waveIndex || 1))),
       timeLimit: Math.max(1, finite(value.wave?.timeLimit, 60)),
+      clearGold: Math.max(0, Math.round(finite(value.wave?.clearGold, 0))),
       groups: Array.isArray(value.wave?.groups) ? value.wave.groups : [],
     },
   };
@@ -288,11 +293,9 @@ export class CombatEngine {
   private waveIndex = 0;
   private elapsed = 0;
   private timeLimit = 60;
+  private clearGold = 0;
   private baseHp = 100;
   private maxBaseHp = 100;
-  private playerXp = 0;
-  private playerLevel = 1;
-  private pendingLevelUps = 0;
   private groupCursor = 0;
   private enemyOrdinal = 0;
   private waveGroups: SpawnGroupLike[] = [];
@@ -322,11 +325,9 @@ export class CombatEngine {
     this.waveIndex = normalized.waveIndex;
     this.elapsed = 0;
     this.timeLimit = normalized.wave.timeLimit;
+    this.clearGold = normalized.wave.clearGold;
     this.baseHp = normalized.baseHp;
     this.maxBaseHp = 100;
-    this.playerXp = normalized.playerXp;
-    this.playerLevel = normalized.playerLevel;
-    this.pendingLevelUps = 0;
     this.groupCursor = 0;
     this.enemyOrdinal = 0;
     this.waveGroups = [...normalized.wave.groups]
@@ -343,13 +344,16 @@ export class CombatEngine {
     this.metrics = this.emptyMetrics();
     this.spawners = normalized.spawners
       .filter((blueprint) => Boolean(CHARACTERS[blueprint.characterId]))
-      .map((blueprint) => ({ blueprint, cooldown: 0 }));
+      .map((blueprint) => {
+        const cooldownDuration = this.getSpawnerCooldown(blueprint);
+        return { blueprint, cooldown: 0, cooldownDuration };
+      });
 
     // Every tile produces one unit immediately at wave start.
     for (const spawner of this.spawners) {
       if (this.unitCount() >= UNIT_CAP) break;
       this.spawnAlly(spawner.blueprint);
-      spawner.cooldown = this.getSpawnerCooldown(spawner.blueprint);
+      spawner.cooldown = spawner.cooldownDuration;
     }
 
     this.scheduleEnemyGroups();
@@ -389,7 +393,6 @@ export class CombatEngine {
     if (this.disposed || this.phase !== "paused") return;
     const normalizedReason = reason.trim() || "manual";
     this.pauseReasons.delete(normalizedReason);
-    if (normalizedReason === "level-up") this.pendingLevelUps = 0;
     if (this.pauseReasons.size === 0) {
       this.phase = "running";
       this.accumulator = 0;
@@ -412,10 +415,15 @@ export class CombatEngine {
       timeLimit: this.timeLimit,
       baseHp: this.baseHp,
       maxBaseHp: this.maxBaseHp,
-      playerXp: this.playerXp,
-      playerLevel: this.playerLevel,
-      pendingLevelUps: this.pendingLevelUps,
       pausedReasons: [...this.pauseReasons],
+      spawners: this.spawners.map((spawner) => ({
+        id: spawner.blueprint.id,
+        cooldownRemaining: Math.max(0, spawner.cooldown),
+        cooldownDuration: spawner.cooldownDuration,
+        progress: spawner.cooldownDuration > 0
+          ? clamp(1 - spawner.cooldown / spawner.cooldownDuration, 0, 1)
+          : 1,
+      })),
       allies: this.allies.map((unit) => ({
         id: unit.id,
         side: unit.side,
@@ -436,6 +444,7 @@ export class CombatEngine {
           cooldownRatio: weapon.cooldownDuration > 0
             ? clamp(weapon.cooldown / weapon.cooldownDuration, 0, 1)
             : 0,
+          attackPulse: weapon.attackPulse,
         })),
       })),
       enemies: this.enemies.map((unit) => ({
@@ -570,7 +579,7 @@ export class CombatEngine {
         continue;
       }
       this.spawnAlly(spawner.blueprint);
-      spawner.cooldown += this.getSpawnerCooldown(spawner.blueprint);
+      spawner.cooldown += spawner.cooldownDuration;
     }
   }
 
@@ -628,7 +637,10 @@ export class CombatEngine {
   private tickAllies(dt: number): void {
     for (const ally of this.allies) {
       if (ally.hp <= 0) continue;
-      for (const weapon of ally.weapons) weapon.cooldown = Math.max(0, weapon.cooldown - dt);
+      for (const weapon of ally.weapons) {
+        weapon.cooldown = Math.max(0, weapon.cooldown - dt);
+        weapon.attackPulse = Math.max(0, weapon.attackPulse - dt / 0.12);
+      }
       ally.fistCooldown = Math.max(0, ally.fistCooldown - dt);
 
       const target = this.closestEnemy(ally.x);
@@ -642,9 +654,9 @@ export class CombatEngine {
       }
 
       if (ally.weapons.length === 0) {
-        if (ally.fistCooldown <= 0 && Math.abs(target.x - ally.x) <= 22) {
-          this.damageUnit(target, 8 * CHARACTER_TIER_MULTIPLIER[tierIndex(ally.tier)], "fist");
-          ally.fistCooldown = 0.8;
+        if (ally.fistCooldown <= 0 && Math.abs(target.x - ally.x) <= UNARMED_ATTACK.range) {
+          this.damageUnit(target, UNARMED_ATTACK.damage * CHARACTER_HP_AND_POWER_MULTIPLIER[ally.tier], "fist");
+          ally.fistCooldown = UNARMED_ATTACK.cooldown;
           this.addEffect("hit", target.x, target.y - 8, 0.14);
         }
         continue;
@@ -659,6 +671,7 @@ export class CombatEngine {
         if (!weaponTarget) continue;
         if (!this.attackWithWeapon(ally, weapon, definition, weaponTarget)) continue;
         weapon.cooldown = weapon.cooldownDuration;
+        weapon.attackPulse = 1;
       }
     }
   }
@@ -719,8 +732,8 @@ export class CombatEngine {
     const ranged = isRangedWeapon(definition);
     const characterMultiplier = ranged ? ally.rangedDamageMultiplier : ally.meleeDamageMultiplier;
     const damage = definition.damage
-      * WEAPON_TIER_MULTIPLIER[tierIndex(weapon.tier)]
-      * CHARACTER_TIER_MULTIPLIER[tierIndex(ally.tier)]
+      * WEAPON_DAMAGE_MULTIPLIER[weapon.tier]
+      * CHARACTER_HP_AND_POWER_MULTIPLIER[ally.tier]
       * characterMultiplier;
 
     if (definition.attackKind === "projectile" || definition.attackKind === "chain") {
@@ -739,7 +752,7 @@ export class CombatEngine {
         speed: definition.attackKind === "chain" ? 260 : 320,
         kind: definition.attackKind === "chain" ? "chain" : "projectile",
         sourceDefinitionId: definition.id,
-        chainRatio: definition.attackKind === "chain" ? 0.65 : 0,
+        chainRatio: definition.attackKind === "chain" ? definition.secondaryDamageMultiplier ?? 0.65 : 0,
       });
       this.metrics.projectilesCreated += 1;
       return true;
@@ -747,9 +760,9 @@ export class CombatEngine {
 
     if (definition.attackKind === "smash") {
       const targets = this.enemies
-        .filter((enemy) => enemy.hp > 0 && Math.abs(enemy.x - target.x) <= 40)
+        .filter((enemy) => enemy.hp > 0 && Math.abs(enemy.x - target.x) <= (definition.effectRadius ?? 40))
         .sort((left, right) => Math.abs(left.x - target.x) - Math.abs(right.x - target.x))
-        .slice(0, 4);
+        .slice(0, definition.maxTargets);
       for (const enemy of targets) this.damageUnit(enemy, damage, definition.id);
       this.addEffect("smash", target.x, target.y, 0.32);
       return true;
@@ -758,7 +771,7 @@ export class CombatEngine {
     const targets = this.enemies
       .filter((enemy) => enemy.hp > 0 && Math.abs(enemy.x - ally.x) <= definition.range)
       .sort((left, right) => Math.abs(left.x - ally.x) - Math.abs(right.x - ally.x))
-      .slice(0, 2);
+      .slice(0, definition.maxTargets);
     if (targets.length === 0) return false;
     for (const enemy of targets) this.damageUnit(enemy, damage, definition.id);
     this.addEffect("slash", target.x, target.y - 8, 0.2);
@@ -769,7 +782,7 @@ export class CombatEngine {
     const definition = CHARACTERS[blueprint.characterId];
     if (!definition) return;
     const tier = clamp(Math.round(blueprint.tier), 1, 3) as Tier;
-    const maxHp = definition.hp * CHARACTER_TIER_MULTIPLIER[tierIndex(tier)];
+    const maxHp = definition.hp * CHARACTER_HP_AND_POWER_MULTIPLIER[tier];
     const weapons = (blueprint.weapons ?? [])
       .filter((entry) => Boolean(WEAPONS[entry.weaponId]))
       .map((entry) => {
@@ -780,6 +793,7 @@ export class CombatEngine {
           direction: entry.direction,
           cooldown: this.random.between(0, Math.min(0.15, weapon.cooldown * 0.2)),
           cooldownDuration: weapon.cooldown,
+          attackPulse: 0,
         } satisfies InternalWeapon;
       });
     const y = this.allyLane(blueprint.row, blueprint.col);
@@ -805,6 +819,11 @@ export class CombatEngine {
     });
     this.metrics.alliesSpawned[definition.id] = (this.metrics.alliesSpawned[definition.id] ?? 0) + 1;
     this.addEffect("spawn", ALLY_SPAWN_X, y, 0.45);
+    this.emit({
+      type: "ally-spawned",
+      spawnerId: blueprint.id,
+      weaponItemIds: blueprint.weapons.map((weapon) => weapon.sourceItemId),
+    });
   }
 
   private spawnEnemy(enemyId: string, ordinal: number): void {
@@ -831,7 +850,6 @@ export class CombatEngine {
       attackCooldown: this.random.between(0, Math.min(0.2, definition.cooldown * 0.2)),
       cooldownDuration: definition.cooldown,
       range: definition.range,
-      xp: definition.xp,
       armor: clamp(definition.armor ?? 0, 0, 0.95),
       isBoss: Boolean(definition.isBoss),
     });
@@ -864,7 +882,6 @@ export class CombatEngine {
       this.enemies = this.enemies.filter((enemy) => enemy.hp > 0);
       for (const enemy of defeated) {
         this.metrics.enemiesDefeated[enemy.definitionId] = (this.metrics.enemiesDefeated[enemy.definitionId] ?? 0) + 1;
-        this.gainXp(enemy.xp);
         this.addEffect("smash", enemy.x, enemy.y, enemy.isBoss ? 0.7 : 0.36);
       }
     }
@@ -875,35 +892,8 @@ export class CombatEngine {
     }
   }
 
-  private gainXp(amount: number): void {
-    const gained = Math.max(0, Math.round(finite(amount, 0)));
-    if (gained === 0) return;
-    this.playerXp += gained;
-    this.emit({ type: "xp-gained", amount: gained, total: this.playerXp });
-
-    // The final wave intentionally locks the build and suppresses new choices.
-    if (this.waveIndex >= 6) return;
-    while (this.playerLevel < 7) {
-      const threshold = XP_THRESHOLDS[this.playerLevel - 1];
-      if (threshold === undefined || this.playerXp < threshold) break;
-      this.playerXp -= threshold;
-      this.playerLevel += 1;
-      this.pendingLevelUps += 1;
-      this.emit({
-        type: "level-up",
-        level: this.playerLevel,
-        pendingLevelUps: this.pendingLevelUps,
-      });
-    }
-    if (this.pendingLevelUps > 0) {
-      this.pauseReasons.add("level-up");
-      this.phase = "paused";
-      this.accumulator = 0;
-    }
-  }
-
   private getApproachRange(ally: AllyUnit): number {
-    if (ally.weapons.length === 0) return 22;
+    if (ally.weapons.length === 0) return UNARMED_ATTACK.range;
     let shortest = Number.POSITIVE_INFINITY;
     for (const equipped of ally.weapons) {
       const definition = WEAPONS[equipped.definitionId];
@@ -911,14 +901,14 @@ export class CombatEngine {
       const range = definition.range * (isRangedWeapon(definition) ? ally.rangeMultiplier : 1);
       shortest = Math.min(shortest, range);
     }
-    return Number.isFinite(shortest) ? shortest : 22;
+    return Number.isFinite(shortest) ? shortest : UNARMED_ATTACK.range;
   }
 
   private getSpawnerCooldown(blueprint: SpawnerBlueprintLike): number {
     const definition = CHARACTERS[blueprint.characterId];
     if (!definition) return Number.POSITIVE_INFINITY;
     const tier = clamp(Math.round(blueprint.tier), 1, 3) as Tier;
-    return definition.spawnCooldown * CHARACTER_COOLDOWN_MULTIPLIER[tierIndex(tier)];
+    return definition.spawnCooldown * CHARACTER_SPAWN_COOLDOWN_MULTIPLIER[tier];
   }
 
   private closestEnemy(originX: number, maximumDistance = Number.POSITIVE_INFINITY): EnemyUnit | null {
@@ -956,12 +946,12 @@ export class CombatEngine {
   }
 
   private allyLane(row: number, col: number): number {
-    const deterministicOffset = ((Math.round(row) * 7 + Math.round(col) * 11) % 5) - 2;
-    return 260 + deterministicOffset * 9 + this.random.between(-2.5, 2.5);
+    const deterministicOffset = ((Math.round(row) * 7 + Math.round(col) * 11) % 7) - 3;
+    return 260 + deterministicOffset * 10 + this.random.between(-2.5, 2.5);
   }
 
   private enemyLane(ordinal: number): number {
-    const lanes = [236, 249, 262, 275, 288];
+    const lanes = [230, 240, 250, 260, 270, 280, 290];
     return lanes[ordinal % lanes.length] + this.random.between(-3, 3);
   }
 
@@ -992,6 +982,7 @@ export class CombatEngine {
     this.emit({
       type: "wave-cleared",
       waveIndex: this.waveIndex,
+      goldEarned: this.clearGold,
       metrics: this.getMetrics(),
     });
     this.emitSnapshot(true);
@@ -1024,10 +1015,6 @@ export class CombatEngine {
         timeLimit: this.timeLimit,
         baseHp: this.baseHp,
         maxBaseHp: this.maxBaseHp,
-        playerXp: this.playerXp,
-        playerLevel: this.playerLevel,
-        nextLevelXp: XP_THRESHOLDS[this.playerLevel - 1] ?? null,
-        pendingLevelUps: this.pendingLevelUps,
         enemiesAlive: this.enemies.length,
         enemiesRemaining: this.enemies.length + this.pendingEnemies.length + this.unscheduledEnemyCount(),
       },

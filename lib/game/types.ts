@@ -5,7 +5,7 @@ export type Tier = 1 | 2 | 3;
 export type GamePhase =
   | "preparation"
   | "combat"
-  | "level-up"
+  | "shop"
   | "victory"
   | "defeat";
 
@@ -28,6 +28,7 @@ interface ItemDefinitionBase {
   icon: string;
   color: string;
   description: string;
+  shopPrice: number;
 }
 
 export interface CharacterDefinition extends ItemDefinitionBase {
@@ -71,7 +72,6 @@ export interface EnemyDefinition {
   /** Seconds between attacks. */
   cooldown: number;
   range: number;
-  xp: number;
   armor?: number;
   isBoss?: boolean;
 }
@@ -93,6 +93,7 @@ export interface PendingReward {
 }
 
 export interface EquippedWeaponSnapshot {
+  sourceItemId: string;
   weaponId: WeaponId;
   tier: Tier;
   direction: Direction;
@@ -129,6 +130,7 @@ export interface WaveDefinition {
   name: string;
   /** Seconds before the wave is lost to timeout. */
   timeLimit: number;
+  clearGold: number;
   groups: WaveGroup[];
 }
 
@@ -136,8 +138,6 @@ export interface WaveStartInput {
   waveIndex: number;
   seed: string;
   baseHp: number;
-  playerXp: number;
-  playerLevel: number;
   spawners: SpawnerBlueprint[];
   wave: WaveDefinition;
 }
@@ -147,6 +147,14 @@ export interface CombatWeaponView {
   tier: Tier;
   direction: Direction;
   cooldownRatio: number;
+  attackPulse: number;
+}
+
+export interface SpawnerStatusView {
+  id: string;
+  cooldownRemaining: number;
+  cooldownDuration: number;
+  progress: number;
 }
 
 export interface CombatUnitView {
@@ -206,10 +214,6 @@ export interface CombatHud {
   timeLimit: number;
   baseHp: number;
   maxBaseHp: number;
-  playerXp: number;
-  playerLevel: number;
-  nextLevelXp: number | null;
-  pendingLevelUps: number;
   enemiesAlive: number;
   enemiesRemaining: number;
 }
@@ -228,10 +232,8 @@ export interface CombatSnapshot {
   timeLimit: number;
   baseHp: number;
   maxBaseHp: number;
-  playerXp: number;
-  playerLevel: number;
-  pendingLevelUps: number;
   pausedReasons: string[];
+  spawners: SpawnerStatusView[];
   allies: CombatUnitView[];
   enemies: CombatUnitView[];
   projectiles: ProjectileView[];
@@ -244,9 +246,8 @@ export type DefeatReason = "base-destroyed" | "timeout";
 export type CombatEvent =
   | { type: "snapshot"; snapshot: CombatSnapshot }
   | { type: "hud"; hud: CombatHud }
-  | { type: "xp-gained"; amount: number; total: number }
-  | { type: "level-up"; level: number; pendingLevelUps: number }
-  | { type: "wave-cleared"; waveIndex: number; metrics: CombatMetrics }
+  | { type: "ally-spawned"; spawnerId: string; weaponItemIds: string[] }
+  | { type: "wave-cleared"; waveIndex: number; goldEarned: number; metrics: CombatMetrics }
   | {
       type: "defeat";
       reason: DefeatReason;
@@ -284,3 +285,39 @@ export interface RunReportV1 {
   finalInventory: RunReportInventoryItem[];
   completedAt: string;
 }
+
+export interface ShopOffer {
+  id: string;
+  waveIndex: number;
+  definitionId: ItemId;
+  tier: 1;
+  price: number;
+  purchased: boolean;
+}
+
+export interface ShopPurchase {
+  waveIndex: number;
+  definitionId: ItemId;
+  tier: Tier;
+  price: number;
+}
+
+export interface RunReportV2 {
+  version: 2;
+  result: "victory" | "defeat";
+  defeatReason?: DefeatReason;
+  seed: string;
+  combatTime: number;
+  reachedWave: number;
+  baseHp: number;
+  goldEarned: number;
+  goldSpent: number;
+  goldRemaining: number;
+  characterSpawns: Record<string, number>;
+  weaponDamage: Record<string, number>;
+  purchases: ShopPurchase[];
+  finalInventory: RunReportInventoryItem[];
+  completedAt: string;
+}
+
+export type RunReport = RunReportV1 | RunReportV2;
