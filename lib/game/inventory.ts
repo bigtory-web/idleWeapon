@@ -59,6 +59,13 @@ export interface GridMoveResult {
   reason?: "item-not-found" | "invalid-position";
 }
 
+export interface PlaceRewardResult {
+  gridItems: GridItem[];
+  success: boolean;
+  position?: GridPosition;
+  reason?: "grid-full";
+}
+
 export interface MergeRecord {
   kind: "weapon" | "character";
   definitionId: ItemId;
@@ -115,6 +122,34 @@ export function getGridItemAt(
   position: GridPosition,
 ): GridItem | undefined {
   return items.find((item) => positionsEqual(item.position, position));
+}
+
+/** Places a newly selected reward in the first open cell, scanning row-major. */
+export function placeRewardInFirstEmptyCell(
+  gridItems: readonly GridItem[],
+  reward: PendingReward,
+): PlaceRewardResult {
+  for (let row = 0; row < GRID_ROWS; row += 1) {
+    for (let col = 0; col < GRID_COLUMNS; col += 1) {
+      const position: GridPosition = { row, col };
+      if (getGridItemAt(gridItems, position)) continue;
+
+      return {
+        gridItems: [
+          ...cloneGridItems(gridItems),
+          { ...reward, position: { ...position } },
+        ],
+        success: true,
+        position,
+      };
+    }
+  }
+
+  return {
+    gridItems: cloneGridItems(gridItems),
+    success: false,
+    reason: "grid-full",
+  };
 }
 
 export function getAdjacentWeaponConnections(

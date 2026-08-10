@@ -25,6 +25,7 @@ import {
   moveGridItem,
   moveGridItemToPending,
   movePendingRewardToGrid,
+  placeRewardInFirstEmptyCell,
 } from "../lib/game/inventory";
 import { createSeededRng, normalizeSeed } from "../lib/game/rng";
 import type { GridItem, ItemId, PendingReward, Tier } from "../lib/game/types";
@@ -215,6 +216,51 @@ test("queue-to-grid occupied drops swap, while grid items can return to queue", 
   const queued = moveGridItemToPending(swapped, "reward-item", 0);
   assert.deepEqual(queued.gridItems, []);
   assert.deepEqual(queued.pendingRewards.map(({ id }) => id), ["reward-item", "grid-item"]);
+});
+
+test("selected rewards enter the first row-major empty grid cell without mutation", () => {
+  const gridItems = [
+    item("first", "sword", 0, 0),
+    item("third", "scout", 0, 2),
+  ];
+  const selectedReward: PendingReward = {
+    id: "selected-reward",
+    definitionId: "wand",
+    tier: 2,
+    sourceLevel: 4,
+  };
+  const result = placeRewardInFirstEmptyCell(gridItems, selectedReward);
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.position, { row: 0, col: 1 });
+  assert.deepEqual(result.gridItems.at(-1), {
+    ...selectedReward,
+    position: { row: 0, col: 1 },
+  });
+  assert.deepEqual(gridItems, [
+    item("first", "sword", 0, 0),
+    item("third", "scout", 0, 2),
+  ]);
+  assert.notEqual(result.gridItems, gridItems);
+  assert.notEqual(result.gridItems[0], gridItems[0]);
+});
+
+test("reward placement reports grid-full and leaves a full grid unchanged", () => {
+  const gridItems = Array.from({ length: 24 }, (_, index) =>
+    item(`occupied-${index}`, "sword", Math.floor(index / 6), index % 6),
+  );
+  const before = structuredClone(gridItems);
+  const result = placeRewardInFirstEmptyCell(
+    gridItems,
+    reward("unplaced-reward", "bow", 3),
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "grid-full");
+  assert.equal(result.position, undefined);
+  assert.deepEqual(result.gridItems, before);
+  assert.deepEqual(gridItems, before);
+  assert.notEqual(result.gridItems, gridItems);
 });
 
 test("dropItemOnGrid merges matching characters but swaps other item pairs", () => {

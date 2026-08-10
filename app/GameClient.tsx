@@ -21,20 +21,16 @@ import {
   WAVE_DEFINITIONS,
   WEAPONS,
   getXpRequirementForLevel,
-  isCharacterId,
 } from "@/lib/game/data";
 import { CombatEngine } from "@/lib/game/engine";
 import {
   autoMergeWeapons,
   deriveSpawnerBlueprints,
   dropItemOnGrid,
-  getAdjacentWeaponConnections,
   getAdjacentWeapons,
   getCharactersSharingWeapon,
   getGridItemAt,
-  moveGridItemToPending,
-  reorderPendingReward,
-  type InventoryState,
+  placeRewardInFirstEmptyCell,
 } from "@/lib/game/inventory";
 import { createSeededRng } from "@/lib/game/rng";
 import { renderBattle } from "@/lib/game/render";
@@ -54,11 +50,9 @@ import {
 } from "@/lib/game/types";
 
 type UiPhase = GamePhase | "transition";
-type DragOrigin = "grid" | "queue";
 
 interface DragState {
   id: string;
-  origin: DragOrigin;
   pointerId: number;
   startX: number;
   startY: number;
@@ -158,18 +152,6 @@ function formatTime(seconds: number): string {
   return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
 }
 
-function phaseLabel(phase: UiPhase): string {
-  const labels: Record<UiPhase, string> = {
-    preparation: "배치 가능",
-    combat: "전투 중 · 가방 잠김",
-    "level-up": "레벨업 선택",
-    transition: "웨이브 정리",
-    victory: "원정 성공",
-    defeat: "원정 실패",
-  };
-  return labels[phase];
-}
-
 function buildReportText(report: RunReportV1): string {
   const spawns = Object.entries(report.characterSpawns)
     .map(([id, value]) => `- ${ITEM_DEFINITIONS[id as ItemId]?.name ?? id}: ${value}명`)
@@ -210,9 +192,7 @@ export default function GameClient() {
   const [waveCursor, setWaveCursor] = useState(0);
   const [seed, setSeed] = useState(DEFAULT_SEED);
   const [gridItems, setGridItems] = useState<GridItem[]>(cloneStartingInventory);
-  const [pendingRewards, setPendingRewards] = useState<PendingReward[]>([]);
   const [snapshot, setSnapshot] = useState<CombatSnapshot>(() => createIdleSnapshot());
-  const [selectedId, setSelectedId] = useState<string | null>("start-scout");
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [levelQueue, setLevelQueue] = useState<number[]>([]);
@@ -226,7 +206,6 @@ export default function GameClient() {
 
   const phaseRef = useRef(phase);
   const gridRef = useRef(gridItems);
-  const pendingRef = useRef(pendingRewards);
   const seedRef = useRef(seed);
   const snapshotRef = useRef(snapshot);
   const rewardChoicesRef = useRef(rewardChoices);
@@ -236,7 +215,6 @@ export default function GameClient() {
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { gridRef.current = gridItems; }, [gridItems]);
-  useEffect(() => { pendingRef.current = pendingRewards; }, [pendingRewards]);
   useEffect(() => { seedRef.current = seed; }, [seed]);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
   useEffect(() => { rewardChoicesRef.current = rewardChoices; }, [rewardChoices]);
@@ -297,14 +275,6 @@ export default function GameClient() {
           col: item.position?.col ?? null,
           location: "grid" as const,
         })),
-        ...pendingRef.current.map((item) => ({
-          id: item.id,
-          definitionId: item.definitionId,
-          tier: item.tier,
-          row: null,
-          col: null,
-          location: "queue" as const,
-        })),
       ],
       completedAt: new Date().toISOString(),
     };
@@ -363,11 +333,9 @@ export default function GameClient() {
           changePhase("transition");
           playTone(620, 0.14);
           transitionTimerRef.current = setTimeout(() => {
-            const merged = autoMergeWeapons(gridRef.current, pendingRef.current);
+            const merged = autoMergeWeapons(gridRef.current, []);
             gridRef.current = merged.gridItems;
-            pendingRef.current = merged.pendingRewards;
             setGridItems(merged.gridItems);
-            setPendingRewards(merged.pendingRewards);
             setWaveCursor(event.waveIndex);
             if (merged.merges.length) showToast(`무기 ${merged.merges.length}회 자동 합성!`, "success");
             changePhase("preparation");
@@ -428,15 +396,12 @@ export default function GameClient() {
     seedRef.current = nextSeed;
     setGridItems(fresh);
     gridRef.current = fresh;
-    setPendingRewards([]);
-    pendingRef.current = [];
     setWaveCursor(0);
     setRewardChoices([]);
     rewardChoicesRef.current = [];
     setLevelQueue([]);
     levelQueueRef.current = [];
     setManualPaused(false);
-    setSelectedId("start-scout");
     setReport(null);
     totalsRef.current = emptyMetrics();
     const idle = createIdleSnapshot();
@@ -486,9 +451,13 @@ export default function GameClient() {
     const level = levelQueueRef.current[0];
     if (!level) return;
     const reward: PendingReward = { id: `reward-${level}-${definitionId}`, definitionId, tier: 1, sourceLevel: level };
-    const nextPending = [...pendingRef.current, reward];
-    pendingRef.current = nextPending;
-    setPendingRewards(nextPending);
+    const placed = placeRewardInFirstEmptyCell(gridRef.current, reward);
+    if (!placed.success) {
+      showToast("가방이 가득 찼어요. 빈칸을 만든 뒤 다시 선택해 주세요.", "warning");
+      return;
+    }
+    gridRef.current = placed.gridItems;
+    setGridItems(placed.gridItems);
     const choices = [...rewardChoicesRef.current, { level, definitionId, tier: 1 as const }];
     rewardChoicesRef.current = choices;
     setRewardChoices(choices);
@@ -496,39 +465,35 @@ export default function GameClient() {
     levelQueueRef.current = remaining;
     setLevelQueue(remaining);
     playTone(660, 0.1);
+    showToast(`${ITEM_DEFINITIONS[definitionId].name}이(가) 가방에 들어왔어요.`, "success");
     if (remaining.length === 0) {
       engineRef.current?.resume("level-up");
       changePhase("combat");
     }
-  }, [changePhase, playTone]);
+  }, [changePhase, playTone, showToast]);
 
-  const applyInventory = useCallback((state: InventoryState, message?: string) => {
-    gridRef.current = state.gridItems;
-    pendingRef.current = state.pendingRewards;
-    setGridItems(state.gridItems);
-    setPendingRewards(state.pendingRewards);
+  const applyInventory = useCallback((nextGridItems: GridItem[], message?: string) => {
+    gridRef.current = nextGridItems;
+    setGridItems(nextGridItems);
     if (message) showToast(message, "success");
   }, [showToast]);
 
-  const completeDrop = useCallback((itemId: string, origin: DragOrigin, target: string | null) => {
+  const completeDrop = useCallback((itemId: string, target: string | null) => {
     if (!target || phaseRef.current !== "preparation") return;
-    const state = { gridItems: gridRef.current, pendingRewards: pendingRef.current };
+    const state = { gridItems: gridRef.current, pendingRewards: [] };
     if (target.startsWith("grid:")) {
       const [, rowValue, colValue] = target.split(":");
       const position = { row: Number(rowValue), col: Number(colValue) };
       const result = dropItemOnGrid(state, itemId, position);
-      if (result.success) applyInventory(result, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
+      if (result.success) applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
       else showToast("그 위치에는 놓을 수 없어요.", "warning");
-    } else if (target === "queue" && origin === "grid") {
-      const result = moveGridItemToPending(state, itemId);
-      if (result.success) applyInventory(result);
     }
   }, [applyInventory, showToast]);
 
-  const pointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>, id: string, origin: DragOrigin) => {
+  const pointerDown = useCallback((event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
     if (phaseRef.current !== "preparation") return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDrag({ id, origin, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, moved: false });
+    setDrag({ id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, moved: false });
   }, []);
 
   const pointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -545,57 +510,24 @@ export default function GameClient() {
 
   const pointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    if (drag.moved) completeDrop(drag.id, drag.origin, dropTarget);
-    else setSelectedId(drag.id);
+    if (drag.moved) completeDrop(drag.id, dropTarget);
     setDrag(null);
     setDropTarget(null);
   }, [completeDrop, drag, dropTarget]);
 
-  const onItemKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, itemId: string, origin: DragOrigin) => {
+  const onItemKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, itemId: string) => {
     if (phaseRef.current !== "preparation") return;
-    const state = { gridItems: gridRef.current, pendingRewards: pendingRef.current };
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      setSelectedId(itemId);
-      if (origin === "queue") {
-        const empty = Array.from({ length: GRID_ROWS * GRID_COLUMNS }, (_, index) => ({ row: Math.floor(index / GRID_COLUMNS), col: index % GRID_COLUMNS }))
-          .find((position) => !getGridItemAt(state.gridItems, position));
-        if (empty) applyInventory(dropItemOnGrid(state, itemId, empty));
-      }
-      return;
-    }
-    if ((event.key === "Delete" || event.key === "Backspace") && origin === "grid") {
-      event.preventDefault();
-      applyInventory(moveGridItemToPending(state, itemId));
-      return;
-    }
+    const state = { gridItems: gridRef.current, pendingRewards: [] };
     const arrows: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowRight: [0, 1], ArrowDown: [1, 0], ArrowLeft: [0, -1] };
     const delta = arrows[event.key];
     if (!delta) return;
     event.preventDefault();
-    if (origin === "grid") {
-      const item = state.gridItems.find((entry) => entry.id === itemId);
-      if (!item?.position) return;
-      const target = { row: item.position.row + delta[0], col: item.position.col + delta[1] };
-      const result = dropItemOnGrid(state, itemId, target);
-      if (result.success) applyInventory(result, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
-    } else {
-      const index = state.pendingRewards.findIndex((item) => item.id === itemId);
-      const result = reorderPendingReward(state, itemId, index + (event.key === "ArrowLeft" ? -1 : 1));
-      if (result.success) applyInventory(result);
-    }
+    const item = state.gridItems.find((entry) => entry.id === itemId);
+    if (!item?.position) return;
+    const target = { row: item.position.row + delta[0], col: item.position.col + delta[1] };
+    const result = dropItemOnGrid(state, itemId, target);
+    if (result.success) applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
   }, [applyInventory]);
-
-  const selectedItem = useMemo(() => {
-    const grid = gridItems.find((item) => item.id === selectedId);
-    if (grid) return { item: grid, origin: "grid" as const };
-    const queued = pendingRewards.find((item) => item.id === selectedId);
-    return queued ? { item: queued, origin: "queue" as const } : null;
-  }, [gridItems, pendingRewards, selectedId]);
-
-  const connections = useMemo(() => gridItems.flatMap((item) => isCharacterId(item.definitionId)
-    ? getAdjacentWeaponConnections(item, gridItems).map(({ item: weapon }) => ({ character: item, weapon }))
-    : []), [gridItems]);
 
   const currentWave = WAVE_DEFINITIONS[waveCursor] ?? WAVE_DEFINITIONS[WAVE_DEFINITIONS.length - 1];
   const nextXp = getXpRequirementForLevel(snapshot.playerLevel);
@@ -603,12 +535,12 @@ export default function GameClient() {
   const timeRemaining = Math.max(0, (currentWave?.timeLimit ?? 0) - snapshot.elapsed);
   const isLocked = phase !== "preparation";
 
-  const renderItem = (item: GridItem | PendingReward, origin: DragOrigin) => {
+  const renderItem = (item: GridItem) => {
     const definition = ITEM_DEFINITIONS[item.definitionId];
     const isCharacter = definition.kind === "character";
-    const linked = origin === "grid" && (isCharacter
-      ? getAdjacentWeapons(item as GridItem, gridItems).length > 0
-      : getCharactersSharingWeapon(item as GridItem, gridItems).length > 0);
+    const linked = isCharacter
+      ? getAdjacentWeapons(item, gridItems).length > 0
+      : getCharactersSharingWeapon(item, gridItems).length > 0;
     const spawnRatio = isCharacter && phase === "combat"
       ? ((snapshot.elapsed % (definition.spawnCooldown * ([1, 0.9, 0.8][item.tier - 1] ?? 1))) / (definition.spawnCooldown * ([1, 0.9, 0.8][item.tier - 1] ?? 1))) * 100
       : 100;
@@ -616,19 +548,18 @@ export default function GameClient() {
       <button
         key={item.id}
         type="button"
-        className={`${origin === "grid" ? "grid-item" : "queue-item"} item-kind-${definition.kind} ${selectedId === item.id ? "selected" : ""} ${drag?.id === item.id ? "dragging" : ""}`}
+        className={`grid-item item-kind-${definition.kind} ${drag?.id === item.id ? "dragging" : ""}`}
         style={itemStyle(definition)}
         aria-label={`${definition.name} ${item.tier}티어${isLocked ? ", 전투 중 이동 잠김" : ", 드래그 또는 방향키로 이동"}`}
-        aria-pressed={selectedId === item.id}
         disabled={isLocked}
-        onPointerDown={(event) => pointerDown(event, item.id, origin)}
+        onPointerDown={(event) => pointerDown(event, item.id)}
         onPointerMove={pointerMove}
         onPointerUp={pointerUp}
         onPointerCancel={() => { setDrag(null); setDropTarget(null); }}
-        onKeyDown={(event) => onItemKeyDown(event, item.id, origin)}
+        onKeyDown={(event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
-          {linked && <span className="linked-dot" aria-hidden="true" />}
+          {linked && <span className="linked-mark" aria-hidden="true">○</span>}
           <span className="tier-badge">T{item.tier}</span>
           <span className="item-icon" aria-hidden="true">{definition.icon}</span>
           <span className="item-name-mini">{definition.name}</span>
@@ -637,14 +568,6 @@ export default function GameClient() {
       </button>
     );
   };
-
-  const selectedDetail = selectedItem ? ITEM_DEFINITIONS[selectedItem.item.definitionId] : null;
-  const selectedGrid = selectedItem?.origin === "grid" ? selectedItem.item as GridItem : null;
-  const linkedNames = selectedDetail && selectedGrid
-    ? selectedDetail.kind === "character"
-      ? getAdjacentWeapons(selectedGrid, gridItems).map((item) => ITEM_DEFINITIONS[item.definitionId].name)
-      : getCharactersSharingWeapon(selectedGrid, gridItems).map((item) => ITEM_DEFINITIONS[item.definitionId].name)
-    : [];
 
   const copyReport = async () => {
     if (!report) return;
@@ -687,34 +610,24 @@ export default function GameClient() {
         </section>
 
         <section className="command-panel" aria-label="가방 편성">
-          <div className="panel-heading"><div className="heading-group"><span className="section-kicker">Formation</span><h2 className="section-title">전투 가방 · 6×4</h2></div><span className={isLocked ? "lock-chip" : "phase-chip"}>{isLocked ? "🔒" : "◆"} {phaseLabel(phase)}</span></div>
           <div className="backpack-frame">
-            <svg className="inventory-links" viewBox="0 0 6 4" preserveAspectRatio="none" aria-hidden="true">{connections.map(({ character, weapon }) => character.position && weapon.position && <line key={`${character.id}-${weapon.id}`} className="inventory-link" x1={character.position.col + 0.5} y1={character.position.row + 0.5} x2={weapon.position.col + 0.5} y2={weapon.position.row + 0.5} />)}</svg>
             <div className="inventory-grid">
               {Array.from({ length: GRID_ROWS * GRID_COLUMNS }, (_, index) => {
                 const position: GridPosition = { row: Math.floor(index / GRID_COLUMNS), col: index % GRID_COLUMNS };
                 const item = getGridItemAt(gridItems, position);
                 const target = `grid:${position.row}:${position.col}`;
-                const canPlaceSelected = !item && selectedItem?.origin === "queue" && phase === "preparation";
-                const placeSelected = () => {
-                  if (canPlaceSelected) completeDrop(selectedItem.item.id, "queue", target);
-                };
-                return <div key={target} className={`grid-cell ${dropTarget === target ? "drop-target" : ""}`} data-drop-target={target} role={canPlaceSelected ? "button" : undefined} tabIndex={canPlaceSelected ? 0 : undefined} onClick={canPlaceSelected ? placeSelected : undefined} onKeyDown={canPlaceSelected ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); placeSelected(); } } : undefined}>{item && renderItem(item, "grid")}</div>;
+                return <div key={target} className={`grid-cell ${dropTarget === target ? "drop-target" : ""}`} data-drop-target={target}>{item && renderItem(item)}</div>;
               })}
             </div>
           </div>
 
-          <div className="queue-panel" data-drop-target="queue"><div className="queue-heading"><div><span className="section-kicker">Next wave</span><h3 className="section-title">보상 대기열</h3></div><span className="queue-count">{pendingRewards.length}개</span></div><div className="reward-queue">{pendingRewards.length ? pendingRewards.map((item) => renderItem(item, "queue")) : <div className="queue-empty">레벨업 보상이 여기에 쌓여요</div>}</div></div>
-
-          {selectedDetail ? <article className="detail-card" style={itemStyle(selectedDetail)}><div className="detail-icon" aria-hidden="true">{selectedDetail.icon}</div><div className="detail-content"><div className="detail-title-row"><h3 className="detail-title">{selectedDetail.name}</h3><span className="detail-tag">T{selectedItem?.item.tier} · {selectedDetail.kind === "character" ? "캐릭터" : "무기"}</span></div><p className="detail-description">{selectedDetail.description}</p><p className="detail-links">{selectedItem?.origin === "queue" ? "대기 중 · 빈 칸을 누르거나 드래그해 배치" : selectedDetail.kind === "character" ? `다음 생성 무기: ${linkedNames.join(", ") || "맨손"}` : `공유 캐릭터: ${linkedNames.join(", ") || "없음"}`}</p></div></article> : <article className="detail-card"><div className="detail-icon">?</div><div className="detail-content"><h3 className="detail-title">아이템을 선택해 보세요</h3><p className="detail-description">캐릭터의 다음 생성 장비와 무기의 공유 대상을 확인할 수 있어요.</p></div></article>}
-
-          <div className="action-row"><button type="button" className="primary-action" disabled={phase !== "preparation"} onClick={startWave}>{phase === "preparation" ? `${currentWave?.index} 웨이브 출격` : phase === "combat" ? "전투 진행 중" : "정리 중"}</button><button type="button" className="secondary-action" onClick={() => showToast(`현재 시드: ${seed}`)}>#</button></div>
+          <div className="action-row"><button type="button" className="primary-action" disabled={phase !== "preparation"} onClick={startWave}>{phase === "preparation" ? `${currentWave?.index} 웨이브 출격` : phase === "combat" ? "전투 진행 중" : "정리 중"}</button></div>
         </section>
 
         <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone === "normal" ? "" : toast.tone}`}>{toast.copy}</div>)}</div>
-        {drag?.moved && <div className="drag-ghost" style={{ left: drag.x, top: drag.y }}>{renderItem((gridItems.find((item) => item.id === drag.id) ?? pendingRewards.find((item) => item.id === drag.id))!, drag.origin)}</div>}
+        {drag?.moved && <div className="drag-ghost" style={{ left: drag.x, top: drag.y }}>{renderItem(gridItems.find((item) => item.id === drag.id)!)}</div>}
 
-        {phase === "level-up" && currentLevel && <div className="modal-backdrop"><section className="level-modal" role="dialog" aria-modal="true" aria-labelledby="level-title"><span className="modal-kicker">Level {currentLevel}</span><h2 className="modal-title" id="level-title">레벨 업!</h2><p className="modal-copy">전투가 완전히 멈췄습니다. 다음 웨이브에 쓸 보상 하나를 고르세요.</p><div className="reward-options">{rewardOptions.map((id) => { const definition = ITEM_DEFINITIONS[id]; return <button type="button" className="reward-option" style={itemStyle(definition)} key={id} onClick={() => chooseReward(id)}><span className="reward-icon">{definition.icon}</span><strong className="reward-name">{definition.name}</strong><span className="reward-kind">{definition.kind === "character" ? "캐릭터" : "무기"} · T1</span><p className="reward-description">{definition.description}</p></button>; })}</div></section></div>}
+        {phase === "level-up" && currentLevel && <div className="modal-backdrop"><section className="level-modal" role="dialog" aria-modal="true" aria-labelledby="level-title"><span className="modal-kicker">Level {currentLevel}</span><h2 className="modal-title" id="level-title">레벨 업!</h2><p className="modal-copy">전투가 완전히 멈췄습니다. 선택한 보상은 가방 첫 빈칸에 바로 들어갑니다.</p><div className="reward-options">{rewardOptions.map((id) => { const definition = ITEM_DEFINITIONS[id]; return <button type="button" className="reward-option" style={itemStyle(definition)} key={id} onClick={() => chooseReward(id)}><span className="reward-icon">{definition.icon}</span><strong className="reward-name">{definition.name}</strong><span className="reward-kind">{definition.kind === "character" ? "캐릭터" : "무기"} · T1</span><p className="reward-description">{definition.description}</p></button>; })}</div></section></div>}
 
         {report && (phase === "victory" || phase === "defeat") && <div className="modal-backdrop"><section className={`report-modal ${report.result}`} role="dialog" aria-modal="true" aria-labelledby="report-title"><div className="report-hero"><div className="report-emblem">{report.result === "victory" ? "🏆" : "🛡️"}</div><span className="modal-kicker">Run complete</span><h2 className="modal-title" id="report-title">{report.result === "victory" ? "보스를 쓰러뜨렸어요!" : "기지를 지키지 못했어요"}</h2><p className="modal-copy">{report.result === "victory" ? "인접 배치가 훌륭한 부대를 만들었습니다." : "배치를 바꿔 같은 시드에 다시 도전해 보세요."}</p></div><div className="report-grid"><div className="report-stat"><span>웨이브</span><strong>{report.reachedWave}/6</strong></div><div className="report-stat"><span>전투 시간</span><strong>{formatTime(report.combatTime)}</strong></div><div className="report-stat"><span>기지 HP</span><strong>{Math.round(report.baseHp)}</strong></div></div><div className="report-section"><h3 className="report-section-title">캐릭터 생성</h3><ul className="report-list">{Object.entries(report.characterSpawns).map(([id, value]) => <li key={id}><span>{ITEM_DEFINITIONS[id as ItemId]?.name ?? id}</span><strong>{value}명</strong></li>)}</ul></div><div className="report-section"><h3 className="report-section-title">무기별 피해</h3><ul className="report-list">{Object.entries(report.weaponDamage).map(([id, value]) => <li key={id}><span>{ITEM_DEFINITIONS[id as ItemId]?.name ?? id}</span><strong>{Math.round(value)}</strong></li>)}</ul></div><div className="report-actions"><button type="button" className="primary-action" onClick={() => resetRun(report.seed)}>같은 시드로 다시 도전</button><button type="button" className="text-action" onClick={() => resetRun(`run-${Date.now().toString(36)}`)}>새 시드 시작</button><button type="button" className="text-action" onClick={copyReport}>한국어 결과 복사</button></div></section></div>}
 

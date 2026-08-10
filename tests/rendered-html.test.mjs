@@ -39,6 +39,16 @@ test("server-renders the Korean game shell", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 
+test("keeps the inventory UI still and direct", async () => {
+  const response = await render();
+  const html = await response.text();
+
+  assert.match(html, /class="linked-mark"[^>]*>○</);
+  assert.doesNotMatch(html, /inventory-links|inventory-link|linked-dot/);
+  assert.doesNotMatch(html, /보상 대기열|레벨업 보상이 여기에 쌓여요/);
+  assert.doesNotMatch(html, /전투 가방 · 6×4|class="detail-card"|>\s*#\s*<\/button>/);
+});
+
 test("removes starter preview and keeps product metadata", async () => {
   const [page, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
