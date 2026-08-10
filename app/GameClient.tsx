@@ -619,7 +619,7 @@ export default function GameClient() {
     const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems, equipmentLinks) : [];
     const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems, equipmentLinks);
     const connectionMarks = isCharacter
-      ? activeConnections.map(({ direction, item: weapon }) => ({ direction, row: 0, col: 0, key: `${direction}-${weapon.id}` }))
+      ? activeConnections.map(({ direction, item: weapon, characterCell }) => ({ direction, row: characterCell.row, col: characterCell.col, key: `${direction}-${weapon.id}` }))
       : getWorldSockets(item).flatMap((socket, index) => {
           const offsets: Record<Direction, [number, number]> = {
             up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
@@ -696,9 +696,9 @@ export default function GameClient() {
           >{connectionMarks.filter((mark) => mark.row === cell.row && mark.col === cell.col).map((mark) => <span
             key={mark.key}
             className={`connection-mark connection-${mark.direction}`}
-          >○</span>)}</span>)}
+          >○</span>)}{isCharacter && <span className="segment-character-icon"><CharacterGlyph id={item.definitionId} /></span>}</span>)}
           {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
-          <span className="item-icon">{isCharacter ? <CharacterGlyph id={item.definitionId} /> : definition.icon}</span>
+          {!isCharacter && <span className="item-icon">{definition.icon}</span>}
           <span id={detailId} className="inventory-item-details" role="tooltip">
             <strong>{definition.name} · T{item.tier}</strong>
             <span>{definition.description}</span>

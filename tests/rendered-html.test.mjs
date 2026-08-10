@@ -47,6 +47,7 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(client, /className={`connection-mark connection-/);
   assert.match(client, /character-glyph character-glyph-\$\{id\}/);
   assert.match(client, /className="item-segment"/);
+  assert.match(client, /className="segment-character-icon"/);
   assert.match(client, /className="rotate-item-button"/);
   assert.match(client, /reconcileEquipmentLinks/);
   assert.match(client, /getActiveWeaponConnections/);

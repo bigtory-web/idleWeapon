@@ -31,7 +31,7 @@ export const ADJACENT_DIRECTIONS: ReadonlyArray<{
 
 const ROTATIONS: Rotation[] = [0, 90, 180, 270];
 
-export interface AdjacentWeaponConnection { item: GridItem; direction: Direction }
+export interface AdjacentWeaponConnection { item: GridItem; direction: Direction; characterCell: FootprintCell }
 export interface InventoryState { gridItems: GridItem[]; pendingRewards: PendingReward[] }
 export type InventoryFailureReason = "item-not-found" | "target-not-found" | "invalid-position" | "same-item" | "not-characters" | "different-character" | "different-tier" | "max-tier";
 export interface InventoryActionResult extends InventoryState {
@@ -100,16 +100,14 @@ export function getRotatedItemGeometry(definitionId: ItemId, rotation: Rotation 
   rows: number;
   cols: number;
 } {
-  if (isCharacterId(definitionId)) {
-    return { cells: [{ row: 0, col: 0 }], sockets: [], rows: 1, cols: 1 };
-  }
-  const definition = WEAPONS[definitionId as WeaponId];
-  const steps = normalizeRotation(rotation) / 90;
+  const isCharacter = isCharacterId(definitionId);
+  const definition = isCharacter ? CHARACTERS[definitionId] : WEAPONS[definitionId as WeaponId];
+  const steps = isCharacter ? 0 : normalizeRotation(rotation) / 90;
   const rawCells = definition.footprint.map((cell) => rotatePoint(cell, steps));
   const minRow = Math.min(...rawCells.map(({ row }) => row));
   const minCol = Math.min(...rawCells.map(({ col }) => col));
   const cells = rawCells.map(({ row, col }) => ({ row: row - minRow, col: col - minCol }));
-  const sockets = definition.sockets.map((socket) => {
+  const sockets = (isCharacter ? [] : definition.sockets).map((socket) => {
     const cell = rotatePoint(socket.cell, steps);
     return {
       cell: { row: cell.row - minRow, col: cell.col - minCol },
@@ -201,8 +199,13 @@ export function getAdjacentWeaponConnections(character: GridItem, allItems: read
     for (const socket of getWorldSockets(weapon)) {
       const offset = directionOffset(socket.direction);
       const target = { row: socket.position.row + offset.row, col: socket.position.col + offset.col };
-      if (!positionsEqual(target, character.position)) continue;
-      matches.push({ item: weapon, direction: rotateDirection(socket.direction, 2) });
+      const relativeCell = getOccupiedCells(character).find((cell) => positionsEqual(target, cell));
+      if (!relativeCell) continue;
+      matches.push({
+        item: weapon,
+        direction: rotateDirection(socket.direction, 2),
+        characterCell: { row: relativeCell.row - character.position.row, col: relativeCell.col - character.position.col },
+      });
       break;
     }
   }

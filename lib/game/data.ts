@@ -70,6 +70,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     rangeMultiplier: 1,
     squadCaps: { 1: 2, 2: 3, 3: 5 },
     weaponSlots: { 1: 1, 2: 2, 3: 3 },
+    footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
   },
   scout: {
     id: "scout",
@@ -87,6 +88,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     rangeMultiplier: 1,
     squadCaps: { 1: 4, 2: 6, 3: 9 },
     weaponSlots: { 1: 1, 2: 2, 3: 3 },
+    footprint: [{ row: 0, col: 0 }],
   },
   sharpshooter: {
     id: "sharpshooter",
@@ -104,6 +106,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     rangeMultiplier: 1.3,
     squadCaps: { 1: 2, 2: 3, 3: 5 },
     weaponSlots: { 1: 1, 2: 2, 3: 3 },
+    footprint: [{ row: 0, col: 0 }, { row: 1, col: 0 }],
   },
 };
 
@@ -350,20 +353,20 @@ export const STARTING_INVENTORY: GridItem[] = [
     id: "start-sword",
     definitionId: "sword",
     tier: 1,
-    position: { row: 1, col: 1 },
+    position: { row: 1, col: 2 },
     rotation: 0,
   },
   {
     id: "start-scout",
     definitionId: "scout",
     tier: 1,
-    position: { row: 1, col: 3 },
+    position: { row: 1, col: 4 },
   },
   {
     id: "start-bow",
     definitionId: "bow",
     tier: 1,
-    position: { row: 0, col: 4 },
+    position: { row: 0, col: 5 },
     rotation: 90,
   },
 ];

@@ -1905,6 +1905,22 @@ textarea:focus-visible {
 .tier-3 .item-segment { border-color: #ffd15e; }
 .item-kind-character .item-segment { border-radius: 15px 15px 10px 10px; }
 
+.segment-character-icon {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.segment-character-icon .character-glyph {
+  width: 28px;
+  height: 33px;
+  transform: scale(.78);
+  transform-origin: center;
+}
+
 .grid-item:focus-visible .item-segment,
 .grid-item.previewing .item-segment {
   box-shadow: inset 0 0 0 2px #fff, inset 0 -4px 0 rgba(0,0,0,.18), 0 3px 7px rgba(0,0,0,.3);

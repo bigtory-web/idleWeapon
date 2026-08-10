@@ -55,6 +55,9 @@ test("data keeps combat stats while adding shapes, squad caps, and 1.5x enemy co
   assert.deepEqual(CHARACTER_SPAWN_COOLDOWN_MULTIPLIER, { 1: 1, 2: 0.9, 3: 0.8 });
   assert.deepEqual(CHARACTERS.shieldbearer.squadCaps, { 1: 2, 2: 3, 3: 5 });
   assert.deepEqual(CHARACTERS.shieldbearer.weaponSlots, { 1: 1, 2: 2, 3: 3 });
+  assert.deepEqual(CHARACTERS.shieldbearer.footprint, [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
+  assert.deepEqual(CHARACTERS.scout.footprint, [{ row: 0, col: 0 }]);
+  assert.deepEqual(CHARACTERS.sharpshooter.footprint, [{ row: 0, col: 0 }, { row: 1, col: 0 }]);
   assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 4, 2: 6, 3: 9 });
   assert.deepEqual(CHARACTERS.sharpshooter.squadCaps, { 1: 2, 2: 3, 3: 5 });
   assert.deepEqual(Object.values(WEAPONS).map(({ footprint }) => footprint.length), [2, 3, 3, 2]);
@@ -74,6 +77,8 @@ test("data keeps combat stats while adding shapes, squad caps, and 1.5x enemy co
 });
 
 test("footprints rotate into normalized bounds and reject edges or overlap", () => {
+  assert.deepEqual(getRotatedItemGeometry("shieldbearer", 90).cells, [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
+  assert.deepEqual(getRotatedItemGeometry("sharpshooter", 90).cells, [{ row: 0, col: 0 }, { row: 1, col: 0 }]);
   assert.deepEqual(getRotatedItemGeometry("bow", 0).cells, [
     { row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 },
   ]);
@@ -110,6 +115,9 @@ test("sockets, not touching perimeter, determine loadouts and sharing", () => {
   assert.deepEqual(getCharactersSharingWeapon(sword, items).map(({ id }) => id), ["left", "right"]);
   assert.deepEqual(getAdjacentWeaponConnections(touchingNoSocket, items), []);
   assert.deepEqual(getAdjacentWeaponConnections(left, items).map(({ item: weapon, direction }) => [weapon.id, direction]), [["sword", "right"]]);
+  const wideShield = item("wide-shield", "shieldbearer", 1, 0);
+  const socketedSword = item("socketed-sword", "sword", 1, 2);
+  assert.deepEqual(getAdjacentWeaponConnections(wideShield, [wideShield, socketedSword]).map(({ item: weapon, characterCell }) => [weapon.id, characterCell]), [["socketed-sword", { row: 0, col: 1 }]]);
 });
 
 test("starting inventory applies tier-one weapon slots to shared contacts", () => {

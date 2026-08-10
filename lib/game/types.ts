@@ -55,6 +55,8 @@ export interface CharacterDefinition extends ItemDefinitionBase {
   squadCaps: Record<Tier, number>;
   /** Number of simultaneously equipped backpack weapons. */
   weaponSlots: Record<Tier, number>;
+  /** Fixed backpack footprint. Characters cannot be rotated. */
+  footprint: FootprintCell[];
 }
 
 export type WeaponAttackKind = "slash" | "projectile" | "smash" | "chain";
