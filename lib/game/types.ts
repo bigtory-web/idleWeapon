@@ -15,10 +15,21 @@ export type EnemyId = "grunt" | "runner" | "armored" | "thrower" | "boss";
 export type ItemId = CharacterId | WeaponId;
 export type ItemKind = "character" | "weapon";
 export type Direction = "up" | "right" | "down" | "left";
+export type Rotation = 0 | 90 | 180 | 270;
 
 export interface GridPosition {
   row: number;
   col: number;
+}
+
+export interface FootprintCell {
+  row: number;
+  col: number;
+}
+
+export interface ConnectionSocket {
+  cell: FootprintCell;
+  direction: Direction;
 }
 
 interface ItemDefinitionBase {
@@ -41,6 +52,7 @@ export interface CharacterDefinition extends ItemDefinitionBase {
   meleeDamageMultiplier: number;
   rangedDamageMultiplier: number;
   rangeMultiplier: number;
+  squadCaps: Record<Tier, number>;
 }
 
 export type WeaponAttackKind = "slash" | "projectile" | "smash" | "chain";
@@ -57,6 +69,8 @@ export interface WeaponDefinition extends ItemDefinitionBase {
   ranged: boolean;
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
+  footprint: FootprintCell[];
+  sockets: ConnectionSocket[];
 }
 
 export type ItemDefinition = CharacterDefinition | WeaponDefinition;
@@ -82,6 +96,7 @@ export interface GridItem {
   tier: Tier;
   /** Null is allowed while a pointer drag is in progress. */
   position: GridPosition | null;
+  rotation?: Rotation;
   sourceLevel?: number;
 }
 
@@ -89,6 +104,7 @@ export interface PendingReward {
   id: string;
   definitionId: ItemId;
   tier: Tier;
+  rotation?: Rotation;
   sourceLevel?: number;
 }
 
@@ -111,6 +127,7 @@ export interface SpawnerBlueprint {
   tier: Tier;
   row: number;
   col: number;
+  maxActive: number;
   weapons: EquippedWeaponSnapshot[];
 }
 
@@ -155,6 +172,9 @@ export interface SpawnerStatusView {
   cooldownRemaining: number;
   cooldownDuration: number;
   progress: number;
+  activeCount: number;
+  maxActive: number;
+  state: "full" | "cooling" | "ready";
 }
 
 export interface CombatUnitView {
@@ -261,6 +281,7 @@ export interface RunReportInventoryItem {
   tier: Tier;
   row: number | null;
   col: number | null;
+  rotation?: Rotation;
   location: "grid" | "queue";
 }
 

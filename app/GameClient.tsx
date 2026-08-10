@@ -19,12 +19,18 @@ import {
 } from "@/lib/game/data";
 import { CombatEngine } from "@/lib/game/engine";
 import {
-  autoMergeWeapons,
+  autoMergeInventory,
   deriveSpawnerBlueprints,
   dropItemOnGrid,
   getAdjacentWeaponConnections,
   getCharactersSharingWeapon,
   getGridItemAt,
+  getOccupiedCells,
+  getRotatedItemGeometry,
+  getWorldSockets,
+  normalizeRotation,
+  positionsEqual,
+  rotateGridItem,
 } from "@/lib/game/inventory";
 import { renderBattle } from "@/lib/game/render";
 import {
@@ -59,6 +65,8 @@ interface DragState {
   x: number;
   y: number;
   moved: boolean;
+  grabRow: number;
+  grabCol: number;
 }
 
 interface Settings {
@@ -180,13 +188,6 @@ function CharacterGlyph({ id }: { id: ItemId }) {
   );
 }
 
-function oppositeDirection(from: GridPosition, to: GridPosition): Direction {
-  if (to.row < from.row) return "up";
-  if (to.row > from.row) return "down";
-  if (to.col < from.col) return "left";
-  return "right";
-}
-
 export default function GameClient() {
   const engineRef = useRef<CombatEngine>(new CombatEngine());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -289,6 +290,7 @@ export default function GameClient() {
         tier: item.tier,
         row: item.position?.row ?? null,
         col: item.position?.col ?? null,
+        rotation: normalizeRotation(item.rotation),
         location: "grid" as const,
       })),
       completedAt: new Date().toISOString(),
@@ -370,7 +372,7 @@ export default function GameClient() {
         changePhase("transition");
         playTone(620, 0.14);
         transitionTimerRef.current = setTimeout(() => {
-          const merged = autoMergeWeapons(gridRef.current, []);
+          const merged = autoMergeInventory(gridRef.current, []);
           gridRef.current = merged.gridItems;
           setGridItems(merged.gridItems);
           setWaveCursor(event.waveIndex);
@@ -527,19 +529,20 @@ export default function GameClient() {
   }, []);
 
   const applyInventory = useCallback((nextGridItems: GridItem[], message?: string) => {
-    gridRef.current = nextGridItems;
-    setGridItems(nextGridItems);
-    if (message) showToast(message, "success");
+    const merged = autoMergeInventory(nextGridItems, []);
+    gridRef.current = merged.gridItems;
+    setGridItems(merged.gridItems);
+    if (message || merged.merges.length) showToast(message ?? `${merged.merges.length}회 자동 합성 완료!`, "success");
   }, [showToast]);
 
-  const completeDrop = useCallback((itemId: string, target: string | null) => {
+  const completeDrop = useCallback((itemId: string, target: string | null, grabRow = 0, grabCol = 0) => {
     if (!target || (phaseRef.current !== "preparation" && phaseRef.current !== "shop")) return;
     if (!target.startsWith("grid:")) return;
     const [, rowValue, colValue] = target.split(":");
     const result = dropItemOnGrid(
       { gridItems: gridRef.current, pendingRewards: [] },
       itemId,
-      { row: Number(rowValue), col: Number(colValue) },
+      { row: Number(rowValue) - grabRow, col: Number(colValue) - grabCol },
     );
     if (result.success) {
       applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
@@ -554,7 +557,12 @@ export default function GameClient() {
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDrag({ id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, moved: false });
+    const item = gridRef.current.find((entry) => entry.id === id);
+    const geometry = item ? getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation)) : { rows: 1, cols: 1 };
+    const rect = event.currentTarget.getBoundingClientRect();
+    const grabRow = Math.max(0, Math.min(geometry.rows - 1, Math.floor(((event.clientY - rect.top) / Math.max(1, rect.height)) * geometry.rows)));
+    const grabCol = Math.max(0, Math.min(geometry.cols - 1, Math.floor(((event.clientX - rect.left) / Math.max(1, rect.width)) * geometry.cols)));
+    setDrag({ id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, moved: false, grabRow, grabCol });
   }, []);
 
   const pointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -573,7 +581,7 @@ export default function GameClient() {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (drag.moved) {
       setPreviewItemId(null);
-      completeDrop(drag.id, dropTarget);
+      completeDrop(drag.id, dropTarget, drag.grabRow, drag.grabCol);
     } else if (event.pointerType !== "mouse") {
       setPreviewItemId((current) => current === drag.id ? null : drag.id);
     }
@@ -583,6 +591,13 @@ export default function GameClient() {
 
   const onItemKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, itemId: string) => {
     if (phaseRef.current !== "preparation" && phaseRef.current !== "shop") return;
+    if (event.key.toLowerCase() === "r") {
+      event.preventDefault();
+      const rotated = rotateGridItem(gridRef.current, itemId);
+      if (rotated.moved) applyInventory(rotated.items);
+      else showToast("이 위치에서는 회전할 수 없어요.", "warning");
+      return;
+    }
     const arrows: Record<string, [number, number]> = {
       ArrowUp: [-1, 0], ArrowRight: [0, 1], ArrowDown: [1, 0], ArrowLeft: [0, -1],
     };
@@ -597,24 +612,51 @@ export default function GameClient() {
       { row: item.position.row + delta[0], col: item.position.col + delta[1] },
     );
     if (result.success) applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
-  }, [applyInventory]);
+  }, [applyInventory, showToast]);
+
+  const rotateSelectedItem = useCallback(() => {
+    if (!previewItemId || inventoryLocked) return;
+    const rotated = rotateGridItem(gridRef.current, previewItemId);
+    if (rotated.moved) applyInventory(rotated.items);
+    else showToast("이 위치에서는 회전할 수 없어요.", "warning");
+  }, [applyInventory, inventoryLocked, previewItemId, showToast]);
 
   const renderItem = (item: GridItem) => {
     const definition = ITEM_DEFINITIONS[item.definitionId];
     const isCharacter = definition.kind === "character";
+    const geometry = getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation));
     const adjacentConnections = isCharacter ? getAdjacentWeaponConnections(item, gridItems) : [];
     const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems);
-    const directions: Direction[] = isCharacter
-      ? adjacentConnections.map((connection) => connection.direction)
-      : sharingCharacters.flatMap((character) =>
-          item.position && character.position ? [oppositeDirection(item.position, character.position)] : [],
-        );
+    const connectionMarks = isCharacter
+      ? adjacentConnections.map(({ direction }) => ({ direction, row: 0, col: 0, key: direction }))
+      : getWorldSockets(item).flatMap((socket, index) => {
+          const offsets: Record<Direction, [number, number]> = {
+            up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
+          };
+          const [rowOffset, colOffset] = offsets[socket.direction];
+          const neighbor = getGridItemAt(gridItems, { row: socket.position.row + rowOffset, col: socket.position.col + colOffset });
+          if (!neighbor || !isCharacterId(neighbor.definitionId) || !item.position) return [];
+          return [{
+            direction: socket.direction,
+            row: socket.position.row - item.position.row,
+            col: socket.position.col - item.position.col,
+            key: `${socket.direction}-${index}`,
+          }];
+        });
     const relationDetail = isCharacter
       ? `다음 생성 무기: ${adjacentConnections.length ? adjacentConnections.map(({ item: weapon }) => ITEM_DEFINITIONS[weapon.definitionId].name).join(", ") : "맨손"}`
       : `공유 캐릭터: ${sharingCharacters.length}명`;
     const spawner = snapshot.spawners.find((entry) => entry.id === item.id);
     const progress = phase === "combat" && isCharacter ? spawner?.progress ?? 0 : 0;
+    const squadDetail = spawner ? ` · 분대 ${spawner.activeCount}/${spawner.maxActive}` : "";
     const detailId = `item-detail-${item.id}`;
+    const layoutStyle = {
+      ...itemStyle(definition, progress),
+      "--item-cols": geometry.cols,
+      "--item-rows": geometry.rows,
+      "--item-width": `calc(${geometry.cols * 100}% + ${(geometry.cols - 1) * 5}px - 6px)`,
+      "--item-height": `calc(${geometry.rows * 100}% + ${(geometry.rows - 1) * 5}px - 6px)`,
+    } as CSSProperties;
     return (
       <button
         key={item.id}
@@ -622,13 +664,15 @@ export default function GameClient() {
         className={[
           "grid-item",
           `item-kind-${definition.kind}`,
+          `shape-${item.definitionId}`,
+          `rotation-${normalizeRotation(item.rotation)}`,
           `tier-${item.tier}`,
           drag?.id === item.id ? "dragging" : "",
           previewItemId === item.id ? "previewing" : "",
           spawnFlashIds.has(item.id) ? "spawn-linked-flash" : "",
         ].filter(Boolean).join(" ")}
-        style={itemStyle(definition, progress)}
-        aria-label={`${definition.name} 티어 ${item.tier}. ${relationDetail}`}
+        style={layoutStyle}
+        aria-label={`${definition.name} 티어 ${item.tier}. ${relationDetail}${squadDetail}`}
         aria-describedby={detailId}
         aria-disabled={inventoryLocked}
         aria-expanded={previewItemId === item.id}
@@ -639,13 +683,21 @@ export default function GameClient() {
         onKeyDown={(event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
-          {directions.map((direction) => <span key={direction} className={`connection-mark connection-${direction}`} aria-hidden="true">○</span>)}
-          {isCharacter && phase === "combat" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
+          {geometry.cells.map((cell) => <span
+            key={`${cell.row}:${cell.col}`}
+            className="item-segment"
+            style={{ gridRow: cell.row + 1, gridColumn: cell.col + 1 }}
+            aria-hidden="true"
+          >{connectionMarks.filter((mark) => mark.row === cell.row && mark.col === cell.col).map((mark) => <span
+            key={mark.key}
+            className={`connection-mark connection-${mark.direction}`}
+          >○</span>)}</span>)}
+          {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
           <span className="item-icon">{isCharacter ? <CharacterGlyph id={item.definitionId} /> : definition.icon}</span>
           <span id={detailId} className="inventory-item-details" role="tooltip">
             <strong>{definition.name} · T{item.tier}</strong>
             <span>{definition.description}</span>
-            <span className="inventory-relation-detail">{relationDetail}</span>
+            <span className="inventory-relation-detail">{relationDetail}{squadDetail}</span>
           </span>
         </span>
       </button>
@@ -662,6 +714,20 @@ export default function GameClient() {
       setCopyFallback(text);
     }
   };
+
+  const dropPreview = (() => {
+    if (!drag?.moved || !dropTarget?.startsWith("grid:")) return null;
+    const [, rowValue, colValue] = dropTarget.split(":");
+    const position = { row: Number(rowValue) - drag.grabRow, col: Number(colValue) - drag.grabCol };
+    const item = gridItems.find((entry) => entry.id === drag.id);
+    if (!item) return null;
+    const result = dropItemOnGrid({ gridItems, pendingRewards: [] }, item.id, position);
+    return { cells: getOccupiedCells(item, position), valid: result.success };
+  })();
+
+  const selectedInventoryItem = previewItemId
+    ? gridItems.find((item) => item.id === previewItemId) ?? null
+    : null;
 
   return (
     <main className={`game-stage ${settings.reducedMotion ? "reduced-motion" : ""}`}>
@@ -731,11 +797,27 @@ export default function GameClient() {
             <div className="inventory-grid">
               {Array.from({ length: GRID_ROWS * GRID_COLUMNS }, (_, index) => {
                 const position: GridPosition = { row: Math.floor(index / GRID_COLUMNS), col: index % GRID_COLUMNS };
-                const item = getGridItemAt(gridItems, position);
+                const occupant = getGridItemAt(gridItems, position);
+                const item = gridItems.find((entry) => positionsEqual(entry.position, position));
                 const target = `grid:${position.row}:${position.col}`;
-                return <div key={target} className={`grid-cell ${dropTarget === target ? "drop-target" : ""}`} data-drop-target={target}>{item && renderItem(item)}</div>;
+                const previewed = dropPreview?.cells.some((cell) => positionsEqual(cell, position));
+                return <div
+                  key={target}
+                  className={[
+                    "grid-cell",
+                    occupant ? "occupied-cell" : "",
+                    previewed ? (dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
+                  ].filter(Boolean).join(" ")}
+                  data-drop-target={target}
+                >{item && renderItem(item)}</div>;
               })}
             </div>
+            {selectedInventoryItem && !isCharacterId(selectedInventoryItem.definitionId) && !inventoryLocked && <button
+              type="button"
+              className="rotate-item-button"
+              onClick={rotateSelectedItem}
+              aria-label={`${ITEM_DEFINITIONS[selectedInventoryItem.definitionId].name} 90도 회전`}
+            >↻ 회전</button>}
           </div>
         </section>
 

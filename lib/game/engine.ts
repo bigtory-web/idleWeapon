@@ -89,6 +89,7 @@ interface SpawnerBlueprintLike {
   tier: Tier;
   row: number;
   col: number;
+  maxActive?: number;
   weapons: WeaponBlueprintLike[];
 }
 
@@ -139,6 +140,7 @@ interface BaseUnit {
 
 interface AllyUnit extends BaseUnit {
   side: "ally";
+  spawnerId: string;
   weapons: InternalWeapon[];
   fistCooldown: number;
   meleeDamageMultiplier: number;
@@ -346,15 +348,8 @@ export class CombatEngine {
       .filter((blueprint) => Boolean(CHARACTERS[blueprint.characterId]))
       .map((blueprint) => {
         const cooldownDuration = this.getSpawnerCooldown(blueprint);
-        return { blueprint, cooldown: 0, cooldownDuration };
+        return { blueprint, cooldown: cooldownDuration, cooldownDuration };
       });
-
-    // Every tile produces one unit immediately at wave start.
-    for (const spawner of this.spawners) {
-      if (this.unitCount() >= UNIT_CAP) break;
-      this.spawnAlly(spawner.blueprint);
-      spawner.cooldown = spawner.cooldownDuration;
-    }
 
     this.scheduleEnemyGroups();
     this.flushPendingEnemies();
@@ -416,14 +411,23 @@ export class CombatEngine {
       baseHp: this.baseHp,
       maxBaseHp: this.maxBaseHp,
       pausedReasons: [...this.pauseReasons],
-      spawners: this.spawners.map((spawner) => ({
-        id: spawner.blueprint.id,
-        cooldownRemaining: Math.max(0, spawner.cooldown),
-        cooldownDuration: spawner.cooldownDuration,
-        progress: spawner.cooldownDuration > 0
+      spawners: this.spawners.map((spawner) => {
+        const activeCount = this.activeCountForSpawner(spawner.blueprint.id);
+        const maxActive = Math.max(1, Math.round(finite(spawner.blueprint.maxActive ?? 1, 1)));
+        const full = activeCount >= maxActive;
+        const progress = full ? 0 : spawner.cooldownDuration > 0
           ? clamp(1 - spawner.cooldown / spawner.cooldownDuration, 0, 1)
-          : 1,
-      })),
+          : 1;
+        return {
+          id: spawner.blueprint.id,
+          cooldownRemaining: full ? spawner.cooldownDuration : Math.max(0, spawner.cooldown),
+          cooldownDuration: spawner.cooldownDuration,
+          progress,
+          activeCount,
+          maxActive,
+          state: full ? "full" : progress >= 1 ? "ready" : "cooling",
+        };
+      }),
       allies: this.allies.map((unit) => ({
         id: unit.id,
         side: unit.side,
@@ -572,6 +576,11 @@ export class CombatEngine {
 
   private tickSpawners(dt: number): void {
     for (const spawner of this.spawners) {
+      const maxActive = Math.max(1, Math.round(finite(spawner.blueprint.maxActive ?? 1, 1)));
+      if (this.activeCountForSpawner(spawner.blueprint.id) >= maxActive) {
+        spawner.cooldown = spawner.cooldownDuration;
+        continue;
+      }
       spawner.cooldown -= dt;
       if (spawner.cooldown > 0) continue;
       if (this.unitCount() >= UNIT_CAP) {
@@ -579,7 +588,7 @@ export class CombatEngine {
         continue;
       }
       this.spawnAlly(spawner.blueprint);
-      spawner.cooldown += spawner.cooldownDuration;
+      spawner.cooldown = spawner.cooldownDuration;
     }
   }
 
@@ -801,6 +810,7 @@ export class CombatEngine {
     this.allies.push({
       id: this.nextId("ally"),
       side: "ally",
+      spawnerId: blueprint.id,
       definitionId: definition.id,
       name: definition.name,
       tier,
@@ -910,6 +920,12 @@ export class CombatEngine {
     if (!definition) return Number.POSITIVE_INFINITY;
     const tier = clamp(Math.round(blueprint.tier), 1, 3) as Tier;
     return definition.spawnCooldown * CHARACTER_SPAWN_COOLDOWN_MULTIPLIER[tier];
+  }
+
+  private activeCountForSpawner(spawnerId: string): number {
+    let count = 0;
+    for (const ally of this.allies) if (ally.hp > 0 && ally.spawnerId === spawnerId) count += 1;
+    return count;
   }
 
   private closestEnemy(originX: number, originY: number, maximumDistance = Number.POSITIVE_INFINITY): EnemyUnit | null {

@@ -196,7 +196,7 @@ export function projectBattlePoint(x: number, y: number): ProjectedBattlePoint {
     x: BATTLEFIELD_WIDTH / 2 + (x - BATTLEFIELD_WIDTH / 2) * perspective,
     y: 194 + depth * 122,
     depth,
-    scale: 0.52 + depth * 0.14,
+    scale: 0.624 + depth * 0.168,
   };
 }
 

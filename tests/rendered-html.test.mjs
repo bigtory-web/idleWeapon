@@ -46,6 +46,8 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(client, /className="spawn-cooldown-fill"/);
   assert.match(client, /className={`connection-mark connection-/);
   assert.match(client, /character-glyph character-glyph-\$\{id\}/);
+  assert.match(client, /className="item-segment"/);
+  assert.match(client, /className="rotate-item-button"/);
   assert.doesNotMatch(client, /className="tier-badge"|className="item-name-mini"/);
   assert.match(styles, /\.tier-1[^{}]*\{[^}]*#aeb3bc/s);
   assert.match(styles, /\.tier-2[^{}]*\{[^}]*#5bc9ff/s);
@@ -59,7 +61,7 @@ test("renderer uses a uniform 2.5D projection and density limits", async () => {
   assert.match(renderer, /export function projectBattlePoint/);
   assert.match(renderer, /const scale = Math\.min\(context\.canvas\.width \/ width, context\.canvas\.height \/ height\)/);
   assert.match(renderer, /units\.length > 55/);
-  assert.match(renderer, /0\.52 \+ depth \* 0\.14/);
+  assert.match(renderer, /0\.624 \+ depth \* 0\.168/);
   assert.match(renderer, /unit\.isBoss \? 1\.45 : 1/);
   assert.match(renderer, /#ff5d63/);
   assert.match(renderer, /#57d9dc/);

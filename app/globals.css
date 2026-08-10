@@ -577,6 +577,7 @@ textarea:focus-visible {
 .grid-item.dragging {
   z-index: 30;
   opacity: 0.2;
+  pointer-events: none;
 }
 
 .item-card {
@@ -1844,4 +1845,104 @@ textarea:focus-visible {
   animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
+}
+
+/* Multi-cell backpack items */
+.grid-item {
+  top: 3px;
+  left: 3px;
+  right: auto;
+  bottom: auto;
+  width: var(--item-width, calc(100% - 6px));
+  height: var(--item-height, calc(100% - 6px));
+}
+
+.grid-item .item-card {
+  display: grid;
+  grid-template-columns: repeat(var(--item-cols, 1), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--item-rows, 1), minmax(0, 1fr));
+  gap: 5px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.item-segment {
+  position: relative;
+  z-index: 1;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  border: 2px solid #aeb3bc;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 38% 24%, rgba(255, 255, 255, 0.25), transparent 30%),
+    linear-gradient(155deg, color-mix(in srgb, var(--item-color, #725b93) 42%, #41364f), #211a2c 70%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.24), inset 0 -4px 0 rgba(0,0,0,.18), 0 3px 7px rgba(0,0,0,.3);
+}
+
+.tier-2 .item-segment { border-color: #5bc9ff; }
+.tier-3 .item-segment { border-color: #ffd15e; }
+.item-kind-character .item-segment { border-radius: 15px 15px 10px 10px; }
+
+.grid-item:focus-visible .item-segment,
+.grid-item.previewing .item-segment {
+  box-shadow: inset 0 0 0 2px #fff, inset 0 -4px 0 rgba(0,0,0,.18), 0 3px 7px rgba(0,0,0,.3);
+}
+
+.grid-item .item-icon,
+.grid-item .spawn-cooldown-fill,
+.grid-item .inventory-item-details {
+  position: absolute;
+}
+
+.grid-item .item-icon {
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.spawn-linked-flash .item-segment {
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.9), 0 0 10px rgba(255,244,197,.55);
+}
+
+.grid-cell.occupied-cell {
+  background: rgba(20, 16, 31, 0.58);
+}
+
+.grid-cell.drop-valid {
+  border-color: var(--cyan);
+  background: rgba(54, 164, 151, 0.2);
+  box-shadow: inset 0 0 0 2px rgba(94,234,212,.3), 0 0 12px rgba(94,234,212,.2);
+}
+
+.grid-cell.drop-invalid {
+  border-color: #ff657c;
+  background: rgba(210, 57, 84, 0.22);
+  box-shadow: inset 0 0 0 2px rgba(255,101,124,.28);
+}
+
+.rotate-item-button {
+  position: absolute;
+  z-index: 18;
+  right: 14px;
+  bottom: 14px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 10px;
+  background: rgba(21,14,38,.92);
+  box-shadow: 0 5px 14px rgba(0,0,0,.35);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.drag-ghost .grid-item {
+  width: 100%;
+  height: 100%;
 }

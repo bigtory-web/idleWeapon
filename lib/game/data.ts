@@ -68,6 +68,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     meleeDamageMultiplier: 1.25,
     rangedDamageMultiplier: 0.9,
     rangeMultiplier: 1,
+    squadCaps: { 1: 2, 2: 3, 3: 5 },
   },
   scout: {
     id: "scout",
@@ -83,6 +84,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     meleeDamageMultiplier: 0.85,
     rangedDamageMultiplier: 0.85,
     rangeMultiplier: 1,
+    squadCaps: { 1: 4, 2: 6, 3: 9 },
   },
   sharpshooter: {
     id: "sharpshooter",
@@ -98,6 +100,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     meleeDamageMultiplier: 0.8,
     rangedDamageMultiplier: 1.3,
     rangeMultiplier: 1.3,
+    squadCaps: { 1: 2, 2: 3, 3: 5 },
   },
 };
 
@@ -116,6 +119,11 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "slash",
     maxTargets: 2,
     ranged: false,
+    footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
+    sockets: [
+      { cell: { row: 0, col: 0 }, direction: "left" },
+      { cell: { row: 0, col: 1 }, direction: "right" },
+    ],
   },
   bow: {
     id: "bow",
@@ -131,6 +139,8 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "projectile",
     maxTargets: 1,
     ranged: true,
+    footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 }],
+    sockets: [{ cell: { row: 0, col: 1 }, direction: "down" }],
   },
   hammer: {
     id: "hammer",
@@ -147,6 +157,8 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     maxTargets: 4,
     ranged: false,
     effectRadius: 40,
+    footprint: [{ row: 0, col: 0 }, { row: 1, col: 0 }, { row: 1, col: 1 }],
+    sockets: [{ cell: { row: 0, col: 0 }, direction: "up" }],
   },
   wand: {
     id: "wand",
@@ -163,6 +175,11 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     maxTargets: 2,
     ranged: true,
     secondaryDamageMultiplier: 0.65,
+    footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
+    sockets: [
+      { cell: { row: 0, col: 0 }, direction: "left" },
+      { cell: { row: 0, col: 1 }, direction: "right" },
+    ],
   },
 };
 
@@ -240,10 +257,10 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     timeLimit: 60,
     clearGold: 8,
     groups: [
-      { at: 0, enemies: [{ enemyId: "grunt", count: 3 }] },
-      { at: 6, enemies: [{ enemyId: "grunt", count: 3 }] },
-      { at: 12, enemies: [{ enemyId: "grunt", count: 3 }] },
-      { at: 18, enemies: [{ enemyId: "grunt", count: 3 }] },
+      { at: 0, enemies: [{ enemyId: "grunt", count: 5 }] },
+      { at: 6, enemies: [{ enemyId: "grunt", count: 5 }] },
+      { at: 12, enemies: [{ enemyId: "grunt", count: 4 }] },
+      { at: 18, enemies: [{ enemyId: "grunt", count: 4 }] },
     ],
   },
   {
@@ -254,8 +271,8 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     groups: [0, 7, 14, 21, 28].map((at) => ({
       at,
       enemies: [
-        { enemyId: "grunt", count: 2 },
-        { enemyId: "runner", count: 2 },
+        { enemyId: "grunt", count: 3 },
+        { enemyId: "runner", count: 3 },
       ],
     })),
   },
@@ -265,11 +282,11 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     timeLimit: 90,
     clearGold: 12,
     groups: [
-      { at: 0, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "armored", count: 1 }] },
-      { at: 8, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "armored", count: 1 }] },
-      { at: 16, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "armored", count: 2 }] },
-      { at: 24, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "armored", count: 1 }] },
-      { at: 32, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "armored", count: 2 }] },
+      { at: 0, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "armored", count: 2 }] },
+      { at: 8, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "armored", count: 2 }] },
+      { at: 16, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "armored", count: 3 }] },
+      { at: 24, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "armored", count: 2 }] },
+      { at: 32, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "armored", count: 2 }] },
     ],
   },
   {
@@ -278,11 +295,11 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     timeLimit: 90,
     clearGold: 14,
     groups: [
-      { at: 0, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "thrower", count: 1 }] },
-      { at: 8, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "thrower", count: 2 }] },
-      { at: 16, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "thrower", count: 2 }] },
-      { at: 24, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "thrower", count: 2 }] },
-      { at: 32, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "thrower", count: 2 }] },
+      { at: 0, enemies: [{ enemyId: "grunt", count: 4 }, { enemyId: "thrower", count: 1 }] },
+      { at: 8, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "thrower", count: 3 }] },
+      { at: 16, enemies: [{ enemyId: "grunt", count: 5 }, { enemyId: "thrower", count: 3 }] },
+      { at: 24, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "thrower", count: 3 }] },
+      { at: 32, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "thrower", count: 4 }] },
     ],
   },
   {
@@ -291,12 +308,12 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     timeLimit: 90,
     clearGold: 16,
     groups: [
-      { at: 0, enemies: [{ enemyId: "grunt", count: 4 }, { enemyId: "runner", count: 2 }] },
-      { at: 7, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "runner", count: 2 }, { enemyId: "armored", count: 1 }] },
-      { at: 14, enemies: [{ enemyId: "armored", count: 2 }, { enemyId: "thrower", count: 3 }] },
-      { at: 21, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "runner", count: 2 }, { enemyId: "armored", count: 2 }] },
-      { at: 28, enemies: [{ enemyId: "runner", count: 2 }, { enemyId: "armored", count: 2 }, { enemyId: "thrower", count: 2 }] },
-      { at: 35, enemies: [{ enemyId: "armored", count: 1 }, { enemyId: "thrower", count: 3 }] },
+      { at: 0, enemies: [{ enemyId: "grunt", count: 6 }, { enemyId: "runner", count: 3 }] },
+      { at: 7, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "runner", count: 3 }, { enemyId: "armored", count: 2 }] },
+      { at: 14, enemies: [{ enemyId: "armored", count: 3 }, { enemyId: "thrower", count: 5 }] },
+      { at: 21, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "runner", count: 3 }, { enemyId: "armored", count: 3 }] },
+      { at: 28, enemies: [{ enemyId: "runner", count: 3 }, { enemyId: "armored", count: 3 }, { enemyId: "thrower", count: 3 }] },
+      { at: 35, enemies: [{ enemyId: "armored", count: 1 }, { enemyId: "thrower", count: 4 }] },
     ],
   },
   {
@@ -305,11 +322,11 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     timeLimit: 120,
     clearGold: 0,
     groups: [
-      { at: 0, enemies: [{ enemyId: "boss", count: 1 }, { enemyId: "grunt", count: 4 }] },
-      { at: 8, enemies: [{ enemyId: "runner", count: 4 }] },
-      { at: 16, enemies: [{ enemyId: "armored", count: 3 }] },
-      { at: 24, enemies: [{ enemyId: "thrower", count: 3 }] },
-      { at: 32, enemies: [{ enemyId: "grunt", count: 2 }, { enemyId: "runner", count: 2 }, { enemyId: "armored", count: 1 }, { enemyId: "thrower", count: 1 }] },
+      { at: 0, enemies: [{ enemyId: "boss", count: 1 }, { enemyId: "grunt", count: 6 }] },
+      { at: 8, enemies: [{ enemyId: "runner", count: 6 }] },
+      { at: 16, enemies: [{ enemyId: "armored", count: 5 }] },
+      { at: 24, enemies: [{ enemyId: "thrower", count: 5 }] },
+      { at: 32, enemies: [{ enemyId: "grunt", count: 3 }, { enemyId: "runner", count: 3 }, { enemyId: "armored", count: 1 }, { enemyId: "thrower", count: 1 }] },
     ],
   },
 ];
@@ -320,13 +337,14 @@ export const STARTING_INVENTORY: GridItem[] = [
     id: "start-shieldbearer",
     definitionId: "shieldbearer",
     tier: 1,
-    position: { row: 1, col: 1 },
+    position: { row: 1, col: 0 },
   },
   {
     id: "start-sword",
     definitionId: "sword",
     tier: 1,
-    position: { row: 1, col: 2 },
+    position: { row: 1, col: 1 },
+    rotation: 0,
   },
   {
     id: "start-scout",
@@ -338,7 +356,8 @@ export const STARTING_INVENTORY: GridItem[] = [
     id: "start-bow",
     definitionId: "bow",
     tier: 1,
-    position: { row: 0, col: 3 },
+    position: { row: 0, col: 4 },
+    rotation: 90,
   },
 ];
 
