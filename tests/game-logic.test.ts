@@ -210,6 +210,46 @@ test("engine exposes real spawner progress and exact connected weapon ids", () =
   engine.dispose();
 });
 
+test("combat uses battlefield depth for targeting and moves units diagonally into range", () => {
+  const engine = new CombatEngine();
+  engine.startWave({
+    waveIndex: 1,
+    seed: "depth-movement",
+    baseHp: 100,
+    spawners: [{
+      id: "deep-ally",
+      characterId: "shieldbearer",
+      tier: 1,
+      row: 3,
+      col: 5,
+      weapons: [],
+    }],
+    wave: {
+      index: 1,
+      name: "depth test",
+      timeLimit: 60,
+      clearGold: 8,
+      groups: [{ at: 0, enemies: [{ enemyId: "grunt", count: 1 }] }],
+    },
+  });
+
+  const before = engine.getSnapshot();
+  const allyBefore = before.allies[0]!;
+  const enemyBefore = before.enemies[0]!;
+  const depthGapBefore = Math.abs(enemyBefore.y - allyBefore.y);
+  for (let index = 0; index < 4; index += 1) engine.step(0.25);
+  const after = engine.getSnapshot();
+  const allyAfter = after.allies[0]!;
+  const enemyAfter = after.enemies[0]!;
+
+  assert.equal(allyAfter.x > allyBefore.x, true);
+  assert.equal(allyAfter.y < allyBefore.y, true);
+  assert.equal(enemyAfter.x < enemyBefore.x, true);
+  assert.equal(enemyAfter.y > enemyBefore.y, true);
+  assert.equal(Math.abs(enemyAfter.y - allyAfter.y) < depthGapBefore, true);
+  engine.dispose();
+});
+
 test("weapon auto-merge chains and keeps the row-major grid survivor", () => {
   const gridItems = [
     item("later-grid", "sword", 2, 4),

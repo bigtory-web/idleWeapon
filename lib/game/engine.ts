@@ -621,8 +621,8 @@ export class CombatEngine {
       this.damageUnit(target, projectile.damage, projectile.sourceDefinitionId);
       if (projectile.chainRatio > 0 && target.side === "enemy") {
         const second = this.enemies
-          .filter((enemy) => enemy.id !== target.id && enemy.hp > 0 && Math.abs(enemy.x - target.x) <= 72)
-          .sort((left, right) => Math.abs(left.x - target.x) - Math.abs(right.x - target.x))[0];
+          .filter((enemy) => enemy.id !== target.id && enemy.hp > 0 && this.distanceBetween(enemy, target) <= 72)
+          .sort((left, right) => this.distanceBetween(left, target) - this.distanceBetween(right, target))[0];
         if (second) {
           this.damageUnit(second, projectile.damage * projectile.chainRatio, projectile.sourceDefinitionId);
           this.addEffect("hit", second.x, second.y - 12, 0.18);
@@ -643,18 +643,18 @@ export class CombatEngine {
       }
       ally.fistCooldown = Math.max(0, ally.fistCooldown - dt);
 
-      const target = this.closestEnemy(ally.x);
+      const target = this.closestEnemy(ally.x, ally.y);
       if (!target) continue;
       ally.facing = target.x >= ally.x ? 1 : -1;
       const approachRange = this.getApproachRange(ally);
-      const distance = Math.abs(target.x - ally.x);
+      const distance = this.distanceBetween(ally, target);
       if (distance > approachRange) {
         const travel = Math.min(ally.moveSpeed * dt, Math.max(0, distance - approachRange));
-        ally.x += ally.facing * travel;
+        this.moveUnitToward(ally, target.x, target.y, travel);
       }
 
       if (ally.weapons.length === 0) {
-        if (ally.fistCooldown <= 0 && Math.abs(target.x - ally.x) <= UNARMED_ATTACK.range) {
+        if (ally.fistCooldown <= 0 && this.distanceBetween(ally, target) <= UNARMED_ATTACK.range) {
           this.damageUnit(target, UNARMED_ATTACK.damage * CHARACTER_HP_AND_POWER_MULTIPLIER[ally.tier], "fist");
           ally.fistCooldown = UNARMED_ATTACK.cooldown;
           this.addEffect("hit", target.x, target.y - 8, 0.14);
@@ -667,7 +667,7 @@ export class CombatEngine {
         const definition = WEAPONS[weapon.definitionId];
         if (!definition) continue;
         const effectiveRange = definition.range * (isRangedWeapon(definition) ? ally.rangeMultiplier : 1);
-        const weaponTarget = this.closestEnemy(ally.x, effectiveRange);
+        const weaponTarget = this.closestEnemy(ally.x, ally.y, effectiveRange);
         if (!weaponTarget) continue;
         if (!this.attackWithWeapon(ally, weapon, definition, weaponTarget)) continue;
         weapon.cooldown = weapon.cooldownDuration;
@@ -680,13 +680,14 @@ export class CombatEngine {
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) continue;
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
-      const target = this.closestAlly(enemy.x);
+      const target = this.closestAlly(enemy.x, enemy.y);
       const targetX = target?.x ?? BASE_X;
-      const distance = Math.abs(targetX - enemy.x);
+      const targetY = target?.y ?? 269;
+      const distance = Math.hypot(targetX - enemy.x, targetY - enemy.y);
       enemy.facing = targetX >= enemy.x ? 1 : -1;
       if (distance > enemy.range) {
         const travel = Math.min(enemy.moveSpeed * dt, Math.max(0, distance - enemy.range));
-        enemy.x += enemy.facing * travel;
+        this.moveUnitToward(enemy, targetX, targetY, travel);
         continue;
       }
       if (enemy.attackCooldown > 0) continue;
@@ -704,7 +705,7 @@ export class CombatEngine {
           prevX: enemy.x,
           prevY: enemy.y - 12,
           targetX,
-          targetY: target ? target.y - 8 : 269,
+          targetY: target ? target.y - 8 : targetY,
           targetId: target?.id ?? null,
           damage: enemy.damage,
           speed: 210,
@@ -760,8 +761,8 @@ export class CombatEngine {
 
     if (definition.attackKind === "smash") {
       const targets = this.enemies
-        .filter((enemy) => enemy.hp > 0 && Math.abs(enemy.x - target.x) <= (definition.effectRadius ?? 40))
-        .sort((left, right) => Math.abs(left.x - target.x) - Math.abs(right.x - target.x))
+        .filter((enemy) => enemy.hp > 0 && this.distanceBetween(enemy, target) <= (definition.effectRadius ?? 40))
+        .sort((left, right) => this.distanceBetween(left, target) - this.distanceBetween(right, target))
         .slice(0, definition.maxTargets);
       for (const enemy of targets) this.damageUnit(enemy, damage, definition.id);
       this.addEffect("smash", target.x, target.y, 0.32);
@@ -769,8 +770,8 @@ export class CombatEngine {
     }
 
     const targets = this.enemies
-      .filter((enemy) => enemy.hp > 0 && Math.abs(enemy.x - ally.x) <= definition.range)
-      .sort((left, right) => Math.abs(left.x - ally.x) - Math.abs(right.x - ally.x))
+      .filter((enemy) => enemy.hp > 0 && this.distanceBetween(enemy, ally) <= definition.range)
+      .sort((left, right) => this.distanceBetween(left, ally) - this.distanceBetween(right, ally))
       .slice(0, definition.maxTargets);
     if (targets.length === 0) return false;
     for (const enemy of targets) this.damageUnit(enemy, damage, definition.id);
@@ -911,12 +912,12 @@ export class CombatEngine {
     return definition.spawnCooldown * CHARACTER_SPAWN_COOLDOWN_MULTIPLIER[tier];
   }
 
-  private closestEnemy(originX: number, maximumDistance = Number.POSITIVE_INFINITY): EnemyUnit | null {
+  private closestEnemy(originX: number, originY: number, maximumDistance = Number.POSITIVE_INFINITY): EnemyUnit | null {
     let result: EnemyUnit | null = null;
     let bestDistance = maximumDistance;
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) continue;
-      const distance = Math.abs(enemy.x - originX);
+      const distance = Math.hypot(enemy.x - originX, enemy.y - originY);
       if (distance <= bestDistance) {
         bestDistance = distance;
         result = enemy;
@@ -925,18 +926,32 @@ export class CombatEngine {
     return result;
   }
 
-  private closestAlly(originX: number): AllyUnit | null {
+  private closestAlly(originX: number, originY: number): AllyUnit | null {
     let result: AllyUnit | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const ally of this.allies) {
       if (ally.hp <= 0) continue;
-      const distance = Math.abs(ally.x - originX);
+      const distance = Math.hypot(ally.x - originX, ally.y - originY);
       if (distance < bestDistance) {
         bestDistance = distance;
         result = ally;
       }
     }
     return result;
+  }
+
+  private distanceBetween(left: Pick<BaseUnit, "x" | "y">, right: Pick<BaseUnit, "x" | "y">): number {
+    return Math.hypot(right.x - left.x, right.y - left.y);
+  }
+
+  private moveUnitToward(unit: BaseUnit, targetX: number, targetY: number, travel: number): void {
+    const dx = targetX - unit.x;
+    const dy = targetY - unit.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= 0 || travel <= 0) return;
+    const step = Math.min(travel, distance);
+    unit.x += (dx / distance) * step;
+    unit.y += (dy / distance) * step;
   }
 
   private findUnit(id: string): BaseUnit | null {
