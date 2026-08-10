@@ -8,6 +8,11 @@ import type {
 export const BATTLEFIELD_WIDTH = 390;
 export const BATTLEFIELD_HEIGHT = 360;
 
+// Keep combat timing/ranges in simulation space while framing the actors as if
+// the camera were 1.5x farther away. This makes the front line easier to read
+// without changing deterministic combat outcomes.
+const UNIT_VISUAL_SCALE = 2 / 3;
+
 export interface BattleRenderOptions {
   width?: number;
   height?: number;
@@ -200,9 +205,7 @@ export function renderBattle(
   context.clearRect(0, 0, width, height);
   drawNightBattlefield(context, snapshot.elapsed, width, height);
 
-  const shake = getCameraShake(snapshot, Boolean(options.reducedMotion));
   context.save();
-  context.translate(shake.x, shake.y);
   drawBase(context, snapshot);
   drawSpawnEffects(context, snapshot.effects, height);
 
@@ -214,7 +217,6 @@ export function renderBattle(
   drawForegroundEffects(context, snapshot.effects, snapshot.elapsed);
   context.restore();
 
-  drawBattleHud(context, snapshot, width);
   if (snapshot.phase === "paused") drawPauseWash(context, width, height);
   context.restore();
 }
@@ -386,7 +388,7 @@ function drawBase(context: CanvasRenderingContext2D, snapshot: SnapshotLike): vo
 }
 
 function drawUnitShadow(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
-  const scale = unit.isBoss ? 1.65 : 1;
+  const scale = (unit.isBoss ? 1.65 : 1) * UNIT_VISUAL_SCALE;
   ellipse(context, unit.x, unit.y + 3, 12 * scale, 3.6 * scale, "rgba(16,8,30,.32)");
 }
 
@@ -397,8 +399,8 @@ function drawUnit(
   showHealthBars: boolean,
 ): void {
   const seed = hashText(unit.id) % 1000;
-  const bob = Math.sin(elapsed * 7 + seed * 0.03) * 0.8;
-  const scale = unit.isBoss ? 1.55 : 1;
+  const bob = Math.sin(elapsed * 7 + seed * 0.03) * 0.8 * UNIT_VISUAL_SCALE;
+  const scale = (unit.isBoss ? 1.55 : 1) * UNIT_VISUAL_SCALE;
   context.save();
   context.translate(unit.x, unit.y + bob);
   context.scale(unit.facing * scale, scale);
@@ -559,12 +561,13 @@ function drawFloatingWeapon(
   };
   const direction = offsets[weapon.direction] ? weapon.direction : "right";
   const offset = offsets[direction];
-  const pulse = Math.sin(elapsed * 4.5 + hashText(unit.id) * 0.02 + index) * 2;
-  const x = unit.x + offset.x;
-  const y = unit.y + offset.y + pulse;
+  const pulse = Math.sin(elapsed * 4.5 + hashText(unit.id) * 0.02 + index) * 2 * UNIT_VISUAL_SCALE;
+  const x = unit.x + offset.x * UNIT_VISUAL_SCALE;
+  const y = unit.y + offset.y * UNIT_VISUAL_SCALE + pulse;
 
   context.save();
   context.translate(x, y);
+  context.scale(UNIT_VISUAL_SCALE, UNIT_VISUAL_SCALE);
   context.globalAlpha = 0.62 + (1 - clamp(weapon.cooldownRatio, 0, 1)) * 0.38;
   context.shadowColor = weapon.tier === 3 ? "#ffd65c" : weapon.tier === 2 ? "#b78cff" : "#7ce5e2";
   context.shadowBlur = weapon.tier * 2;
@@ -632,15 +635,24 @@ function drawWeaponGlyph(context: CanvasRenderingContext2D, definitionId: string
 }
 
 function drawUnitHealth(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
-  const width = unit.isBoss ? 38 : 22;
-  const y = unit.y - (unit.isBoss ? 58 : 47);
+  const width = (unit.isBoss ? 38 : 22) * UNIT_VISUAL_SCALE;
+  const height = 4 * UNIT_VISUAL_SCALE;
+  const y = unit.y - (unit.isBoss ? 58 : 47) * UNIT_VISUAL_SCALE;
   const ratio = clamp(unit.hp / Math.max(1, unit.maxHp), 0, 1);
   context.fillStyle = "rgba(22,11,37,.78)";
-  roundedRectPath(context, unit.x - width / 2, y, width, 4, 2);
+  roundedRectPath(context, unit.x - width / 2, y, width, height, height / 2);
   context.fill();
   if (ratio > 0) {
     context.fillStyle = ratio > 0.45 ? "#6ee0a1" : COLORS.red;
-    roundedRectPath(context, unit.x - width / 2 + 1, y + 1, (width - 2) * ratio, 2, 1);
+    const inset = UNIT_VISUAL_SCALE;
+    roundedRectPath(
+      context,
+      unit.x - width / 2 + inset,
+      y + inset,
+      Math.max(0, width - inset * 2) * ratio,
+      Math.max(0, height - inset * 2),
+      UNIT_VISUAL_SCALE,
+    );
     context.fill();
   }
 }
@@ -772,39 +784,6 @@ function drawForegroundEffects(
   }
 }
 
-function drawBattleHud(context: CanvasRenderingContext2D, snapshot: SnapshotLike, width: number): void {
-  context.save();
-  context.fillStyle = "rgba(25,14,49,.68)";
-  roundedRectPath(context, 10, 10, 85, 27, 10);
-  context.fill();
-  roundedRectPath(context, width - 103, 10, 93, 27, 10);
-  context.fill();
-
-  context.fillStyle = COLORS.white;
-  context.font = "800 12px ui-rounded, system-ui, sans-serif";
-  context.textBaseline = "middle";
-  context.textAlign = "left";
-  context.fillText(`WAVE ${Math.max(1, snapshot.waveIndex)}/6`, 20, 23.5);
-
-  const seconds = Math.max(0, Math.ceil(snapshot.timeLimit - snapshot.elapsed));
-  context.textAlign = "right";
-  context.fillText(`${seconds}초`, width - 20, 23.5);
-
-  const progress = clamp(snapshot.elapsed / Math.max(1, snapshot.timeLimit), 0, 1);
-  context.fillStyle = "rgba(20,11,36,.7)";
-  roundedRectPath(context, 105, 17, width - 218, 12, 6);
-  context.fill();
-  if (progress > 0) {
-    const gradient = context.createLinearGradient(107, 0, width - 115, 0);
-    gradient.addColorStop(0, "#68d6ff");
-    gradient.addColorStop(1, progress > 0.82 ? COLORS.red : "#b990ff");
-    context.fillStyle = gradient;
-    roundedRectPath(context, 107, 19, (width - 222) * progress, 8, 4);
-    context.fill();
-  }
-  context.restore();
-}
-
 function drawPauseWash(context: CanvasRenderingContext2D, width: number, height: number): void {
   context.fillStyle = "rgba(30,16,56,.12)";
   context.fillRect(0, 0, width, height);
@@ -814,19 +793,6 @@ function drawPauseWash(context: CanvasRenderingContext2D, width: number, height:
   context.fillStyle = COLORS.ink;
   context.fillRect(width / 2 - 5, 51, 3, 12);
   context.fillRect(width / 2 + 2, 51, 3, 12);
-}
-
-function getCameraShake(snapshot: SnapshotLike, reducedMotion: boolean): { x: number; y: number } {
-  if (reducedMotion) return { x: 0, y: 0 };
-  const impact = snapshot.effects.reduce((strongest, effect) => {
-    if (effect.kind !== "smash" && effect.kind !== "hit") return strongest;
-    return Math.max(strongest, clamp(effect.life / Math.max(effect.maxLife, 0.001), 0, 1));
-  }, 0);
-  if (impact <= 0) return { x: 0, y: 0 };
-  return {
-    x: Math.sin(snapshot.elapsed * 113) * 1.7 * impact,
-    y: Math.cos(snapshot.elapsed * 149) * 1.1 * impact,
-  };
 }
 
 // Preserve canonical view types as part of the renderer's type surface.

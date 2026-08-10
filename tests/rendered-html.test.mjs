@@ -44,9 +44,35 @@ test("keeps the inventory UI still and direct", async () => {
   const html = await response.text();
 
   assert.match(html, /class="linked-mark"[^>]*>○</);
+  assert.match(html, /웨이브 1/);
+  assert.match(html, />웨이브 시작</);
   assert.doesNotMatch(html, /inventory-links|inventory-link|linked-dot/);
   assert.doesNotMatch(html, /보상 대기열|레벨업 보상이 여기에 쌓여요/);
-  assert.doesNotMatch(html, /전투 가방 · 6×4|class="detail-card"|>\s*#\s*<\/button>/);
+  assert.doesNotMatch(html, /웨이브 출격|class="action-row"|전투 가방 · 6×4|class="detail-card"|>\s*#\s*<\/button>/);
+});
+
+test("keeps compact overlays readable on narrow screens", async () => {
+  const [client, styles] = await Promise.all([
+    readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(client, /className="action-row"|전투가 완전히 멈췄습니다/);
+  assert.match(client, /className="primary-action overlay-start-button"/);
+  assert.match(client, /aria-label={`\$\{definition\.name\}, \$\{kind\} 티어 1\./);
+  assert.match(client, /className="reward-details" role="tooltip"/);
+  assert.match(client, /matchMedia\("\(hover: none\) and \(pointer: coarse\)"\)/);
+  assert.match(styles, /\.battle-overlay-card\s*{[^}]*width: min\(350px, 100%\)/s);
+  assert.match(styles, /\.hud-row\s*{[^}]*grid-template-columns:/s);
+  assert.match(styles, /\.reward-option:focus-visible \.reward-details/);
+  assert.match(styles, /\.reward-option\.previewing \.reward-details/);
+});
+
+test("keeps the battlefield zoomed out without camera shake or duplicate HUD", async () => {
+  const renderer = await readFile(new URL("../lib/game/render.ts", import.meta.url), "utf8");
+
+  assert.match(renderer, /const UNIT_VISUAL_SCALE = 2 \/ 3/);
+  assert.doesNotMatch(renderer, /getCameraShake|drawBattleHud|context\.translate\(shake\.x/);
 });
 
 test("removes starter preview and keeps product metadata", async () => {

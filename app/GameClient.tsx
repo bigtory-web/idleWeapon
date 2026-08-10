@@ -8,6 +8,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -196,6 +197,7 @@ export default function GameClient() {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [levelQueue, setLevelQueue] = useState<number[]>([]);
+  const [previewRewardId, setPreviewRewardId] = useState<ItemId | null>(null);
   const [rewardChoices, setRewardChoices] = useState<RunReportRewardChoice[]>([]);
   const [manualPaused, setManualPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -401,6 +403,7 @@ export default function GameClient() {
     rewardChoicesRef.current = [];
     setLevelQueue([]);
     levelQueueRef.current = [];
+    setPreviewRewardId(null);
     setManualPaused(false);
     setReport(null);
     totalsRef.current = emptyMetrics();
@@ -464,6 +467,7 @@ export default function GameClient() {
     const remaining = levelQueueRef.current.slice(1);
     levelQueueRef.current = remaining;
     setLevelQueue(remaining);
+    setPreviewRewardId(null);
     playTone(660, 0.1);
     showToast(`${ITEM_DEFINITIONS[definitionId].name}이(가) 가방에 들어왔어요.`, "success");
     if (remaining.length === 0) {
@@ -471,6 +475,16 @@ export default function GameClient() {
       changePhase("combat");
     }
   }, [changePhase, playTone, showToast]);
+
+  const previewOrChooseReward = useCallback((definitionId: ItemId, event: ReactMouseEvent<HTMLButtonElement>) => {
+    const touchLike = event.detail > 0
+      && window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+    if (touchLike && previewRewardId !== definitionId) {
+      setPreviewRewardId(definitionId);
+      return;
+    }
+    chooseReward(definitionId);
+  }, [chooseReward, previewRewardId]);
 
   const applyInventory = useCallback((nextGridItems: GridItem[], message?: string) => {
     gridRef.current = nextGridItems;
@@ -606,7 +620,7 @@ export default function GameClient() {
             <div className="battle-status"><div className="spawn-summary">아군 {snapshot.allies.length} · 적 {snapshot.enemies.length} · {currentWave?.name}</div><span className="speed-badge">×1</span></div>
           </div>
           <div className="xp-strip"><span className="level-orb">{snapshot.playerLevel}</span><div className="xp-meter"><div className="xp-fill" style={{ width: `${xpRatio}%` }} /></div><span className="xp-copy">{snapshot.playerLevel >= MAX_PLAYER_LEVEL ? "MAX" : `${snapshot.playerXp}/${nextXp}`}</span></div>
-          {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay"><div className="battle-overlay-card"><strong>{phase === "preparation" ? `${currentWave?.index} 웨이브 준비` : phase === "transition" ? "전선 정리 중…" : "일시정지"}</strong><p>{phase === "preparation" ? "캐릭터 옆에 무기를 붙이면 그 무기를 든 일꾼이 생성돼요." : phase === "transition" ? "살아남은 일꾼이 복귀하고 자동 합성을 확인합니다." : "준비되면 상단의 재생 버튼을 눌러 주세요."}</p></div></div>}
+          {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay"><div className="battle-overlay-card"><strong>{phase === "preparation" ? `웨이브 ${currentWave?.index ?? 1}` : phase === "transition" ? "전선 정리 중…" : "일시정지"}</strong><p>{phase === "preparation" ? "캐릭터 옆에 무기를 붙이면 그 무기를 든 일꾼이 생성돼요." : phase === "transition" ? "살아남은 일꾼이 복귀하고 자동 합성을 확인합니다." : "준비되면 상단의 재생 버튼을 눌러 주세요."}</p>{phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>웨이브 시작</button>}</div></div>}
         </section>
 
         <section className="command-panel" aria-label="가방 편성">
@@ -621,13 +635,12 @@ export default function GameClient() {
             </div>
           </div>
 
-          <div className="action-row"><button type="button" className="primary-action" disabled={phase !== "preparation"} onClick={startWave}>{phase === "preparation" ? `${currentWave?.index} 웨이브 출격` : phase === "combat" ? "전투 진행 중" : "정리 중"}</button></div>
         </section>
 
         <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone === "normal" ? "" : toast.tone}`}>{toast.copy}</div>)}</div>
         {drag?.moved && <div className="drag-ghost" style={{ left: drag.x, top: drag.y }}>{renderItem(gridItems.find((item) => item.id === drag.id)!)}</div>}
 
-        {phase === "level-up" && currentLevel && <div className="modal-backdrop"><section className="level-modal" role="dialog" aria-modal="true" aria-labelledby="level-title"><span className="modal-kicker">Level {currentLevel}</span><h2 className="modal-title" id="level-title">레벨 업!</h2><p className="modal-copy">전투가 완전히 멈췄습니다. 선택한 보상은 가방 첫 빈칸에 바로 들어갑니다.</p><div className="reward-options">{rewardOptions.map((id) => { const definition = ITEM_DEFINITIONS[id]; return <button type="button" className="reward-option" style={itemStyle(definition)} key={id} onClick={() => chooseReward(id)}><span className="reward-icon">{definition.icon}</span><strong className="reward-name">{definition.name}</strong><span className="reward-kind">{definition.kind === "character" ? "캐릭터" : "무기"} · T1</span><p className="reward-description">{definition.description}</p></button>; })}</div></section></div>}
+        {phase === "level-up" && currentLevel && <div className="modal-backdrop"><section className="level-modal" role="dialog" aria-modal="true" aria-labelledby="level-title"><span className="modal-kicker">Level {currentLevel}</span><h2 className="modal-title" id="level-title">레벨 업!</h2><div className="reward-options">{rewardOptions.map((id) => { const definition = ITEM_DEFINITIONS[id]; const kind = definition.kind === "character" ? "캐릭터" : "무기"; const previewing = previewRewardId === id; return <button type="button" className={`reward-option ${previewing ? "previewing" : ""}`} style={itemStyle(definition)} key={id} aria-label={`${definition.name}, ${kind} 티어 1. ${definition.description}`} aria-expanded={previewing} onClick={(event) => previewOrChooseReward(id, event)}><span className="reward-icon" aria-hidden="true">{definition.icon}</span><strong className="reward-name" aria-hidden="true">{definition.name}</strong><span className="reward-details" role="tooltip" aria-hidden="true"><span className="reward-kind">{kind} · T1</span><span className="reward-description">{definition.description}</span></span></button>; })}</div></section></div>}
 
         {report && (phase === "victory" || phase === "defeat") && <div className="modal-backdrop"><section className={`report-modal ${report.result}`} role="dialog" aria-modal="true" aria-labelledby="report-title"><div className="report-hero"><div className="report-emblem">{report.result === "victory" ? "🏆" : "🛡️"}</div><span className="modal-kicker">Run complete</span><h2 className="modal-title" id="report-title">{report.result === "victory" ? "보스를 쓰러뜨렸어요!" : "기지를 지키지 못했어요"}</h2><p className="modal-copy">{report.result === "victory" ? "인접 배치가 훌륭한 부대를 만들었습니다." : "배치를 바꿔 같은 시드에 다시 도전해 보세요."}</p></div><div className="report-grid"><div className="report-stat"><span>웨이브</span><strong>{report.reachedWave}/6</strong></div><div className="report-stat"><span>전투 시간</span><strong>{formatTime(report.combatTime)}</strong></div><div className="report-stat"><span>기지 HP</span><strong>{Math.round(report.baseHp)}</strong></div></div><div className="report-section"><h3 className="report-section-title">캐릭터 생성</h3><ul className="report-list">{Object.entries(report.characterSpawns).map(([id, value]) => <li key={id}><span>{ITEM_DEFINITIONS[id as ItemId]?.name ?? id}</span><strong>{value}명</strong></li>)}</ul></div><div className="report-section"><h3 className="report-section-title">무기별 피해</h3><ul className="report-list">{Object.entries(report.weaponDamage).map(([id, value]) => <li key={id}><span>{ITEM_DEFINITIONS[id as ItemId]?.name ?? id}</span><strong>{Math.round(value)}</strong></li>)}</ul></div><div className="report-actions"><button type="button" className="primary-action" onClick={() => resetRun(report.seed)}>같은 시드로 다시 도전</button><button type="button" className="text-action" onClick={() => resetRun(`run-${Date.now().toString(36)}`)}>새 시드 시작</button><button type="button" className="text-action" onClick={copyReport}>한국어 결과 복사</button></div></section></div>}
 
