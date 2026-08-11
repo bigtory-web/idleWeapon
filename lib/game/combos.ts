@@ -1,4 +1,4 @@
-import type { EquipmentComboId, EquippedWeaponSnapshot, WeaponId } from "./types";
+import type { EquipmentComboId, EquippedWeaponSnapshot, Tier, WeaponId } from "./types";
 
 export interface EquipmentComboDefinition {
   id: EquipmentComboId;
@@ -24,10 +24,14 @@ export const EQUIPMENT_COMBOS: readonly EquipmentComboDefinition[] = [
 ] as const;
 
 export function getActiveEquipmentCombos(
-  weapons: readonly Pick<EquippedWeaponSnapshot, "weaponId">[],
+  characterTier: Tier,
+  weapons: readonly Pick<EquippedWeaponSnapshot, "weaponId" | "tier">[],
 ): EquipmentComboDefinition[] {
+  if (characterTier !== 5) return [];
   const counts = new Map<WeaponId, number>();
-  for (const { weaponId } of weapons) counts.set(weaponId, (counts.get(weaponId) ?? 0) + 1);
+  for (const { weaponId, tier } of weapons) {
+    if (tier === 5) counts.set(weaponId, (counts.get(weaponId) ?? 0) + 1);
+  }
   return EQUIPMENT_COMBOS.filter(({ weapons: [left, right] }) => left === right
     ? (counts.get(left) ?? 0) >= 2
     : (counts.get(left) ?? 0) >= 1 && (counts.get(right) ?? 0) >= 1);

@@ -213,6 +213,7 @@ export function deriveSpawnerBlueprints(items: readonly GridItem[]): SpawnerBlue
         tier: item.tier,
         direction,
       }));
+      const equipmentCost = weapons.reduce((total, weapon) => total + WEAPONS[weapon.weaponId].equipmentCost, 0);
       return {
         id: character.id,
         characterId: character.definitionId as keyof typeof CHARACTERS,
@@ -221,7 +222,8 @@ export function deriveSpawnerBlueprints(items: readonly GridItem[]): SpawnerBlue
         col: character.position.col,
         maxActive: CHARACTERS[character.definitionId as keyof typeof CHARACTERS].squadCaps[character.tier],
         weapons,
-        activeCombos: getActiveEquipmentCombos(weapons).map(({ id }) => id),
+        equipmentCost,
+        activeCombos: getActiveEquipmentCombos(character.tier, weapons).map(({ id }) => id),
       };
     });
 }
@@ -307,8 +309,8 @@ export function mergeInventoryItems(state: InventoryState, sourceId: string, tar
   if (source.id === target.id) return failedState(state, "same-item");
   if (source.definitionId !== target.definitionId) return failedState(state, "different-item");
   if (source.tier !== target.tier) return failedState(state, "different-tier");
-  if (target.tier === 3) return failedState(state, "max-tier");
-  const nextTier = (target.tier + 1) as 2 | 3;
+  if (target.tier === 5) return failedState(state, "max-tier");
+  const nextTier = (target.tier + 1) as Tier;
   return {
     gridItems: state.gridItems.filter((item) => item.id !== source.id).map((item) => item.id === target.id ? { ...cloneGridItem(item), tier: nextTier } : cloneGridItem(item)),
     pendingRewards: state.pendingRewards.filter((item) => item.id !== source.id).map((item) => item.id === target.id ? { ...item, tier: nextTier } : { ...item }),
@@ -318,6 +320,16 @@ export function mergeInventoryItems(state: InventoryState, sourceId: string, tar
 }
 
 export const mergeCharacters = mergeInventoryItems;
+
+export function getMergeReadyItemIds(items: readonly GridItem[]): Set<string> {
+  const groups = new Map<string, string[]>();
+  for (const item of items) {
+    if (item.tier >= 5) continue;
+    const key = `${item.definitionId}:${item.tier}`;
+    groups.set(key, [...(groups.get(key) ?? []), item.id]);
+  }
+  return new Set([...groups.values()].filter((ids) => ids.length >= 2).flat());
+}
 
 export function dropItemOnGrid(state: InventoryState, sourceId: string, targetPosition: GridPosition): InventoryActionResult {
   const source = findLocatedItem(state, sourceId);

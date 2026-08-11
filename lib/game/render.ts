@@ -23,7 +23,7 @@ type Direction = "up" | "down" | "left" | "right";
 
 interface WeaponViewLike {
   definitionId: string;
-  tier: 1 | 2 | 3;
+  tier: 1 | 2 | 3 | 4 | 5;
   direction: Direction;
   cooldownRatio: number;
   attackPulse: number;
@@ -34,7 +34,7 @@ interface UnitViewLike {
   side: "ally" | "enemy";
   definitionId: string;
   name: string;
-  tier: 1 | 2 | 3;
+  tier: 1 | 2 | 3 | 4 | 5;
   x: number;
   y: number;
   hp: number;
@@ -76,7 +76,7 @@ interface EffectViewLike {
 interface SpawnerViewLike {
   id: string;
   characterId: keyof typeof CHARACTERS;
-  tier: 1 | 2 | 3;
+  tier: 1 | 2 | 3 | 4 | 5;
   row: number;
   col: number;
   progress: number;
@@ -84,7 +84,7 @@ interface SpawnerViewLike {
   weapons: Array<{
     sourceItemId: string;
     weaponId: string;
-    tier: 1 | 2 | 3;
+    tier: 1 | 2 | 3 | 4 | 5;
     direction: Direction;
   }>;
 }
@@ -499,7 +499,7 @@ function drawAbsorbingWeapon(
   context.translate(x, y);
   context.scale(scale, scale);
   context.globalAlpha = 1 - progress * 0.72;
-  context.shadowColor = weapon.tier === 3 ? "#ffd65c" : weapon.tier === 2 ? "#b78cff" : "#7ce5e2";
+  context.shadowColor = weapon.tier === 5 ? "#ff5268" : weapon.tier === 4 ? "#b879ff" : weapon.tier === 3 ? "#ffd65c" : weapon.tier === 2 ? "#67cfff" : "#7ce5e2";
   context.shadowBlur = 8;
   drawWeaponGlyph(context, weapon.definitionId, unit.facing);
   context.restore();
@@ -682,7 +682,7 @@ function drawFloatingWeapon(
   context.translate(x, y);
   context.scale(glyphScale, glyphScale);
   context.globalAlpha = 0.7 + attackPulse * 0.3;
-  context.shadowColor = weapon.tier === 3 ? "#ffd65c" : weapon.tier === 2 ? "#b78cff" : "#7ce5e2";
+  context.shadowColor = weapon.tier === 5 ? "#ff5268" : weapon.tier === 4 ? "#b879ff" : weapon.tier === 3 ? "#ffd65c" : weapon.tier === 2 ? "#67cfff" : "#7ce5e2";
   context.shadowBlur = weapon.tier * 2;
   drawWeaponGlyph(context, weapon.definitionId, unit.facing);
   context.shadowBlur = 0;

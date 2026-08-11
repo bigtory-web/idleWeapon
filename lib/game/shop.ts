@@ -11,8 +11,9 @@ export interface ShopPurchaseResult {
   merges: number;
 }
 
-export function generateShopOffers(seed: string, waveIndex: number): ShopOffer[] {
-  const rng = createSeededRng(`${seed}:shop:${waveIndex}`);
+export function generateShopOffers(seed: string, waveIndex: number, rerollIndex = 0): ShopOffer[] {
+  const normalizedReroll = Math.max(0, Math.trunc(rerollIndex));
+  const rng = createSeededRng(`${seed}:shop:${waveIndex}:reroll:${normalizedReroll}`);
   const characters = rng.shuffle(Object.keys(CHARACTERS) as ItemId[]);
   const weapons = rng.shuffle(Object.keys(WEAPONS) as ItemId[]);
   const chosen = [characters[0], weapons[0]].filter(Boolean) as ItemId[];
@@ -20,7 +21,7 @@ export function generateShopOffers(seed: string, waveIndex: number): ShopOffer[]
   if (remaining[0]) chosen.push(remaining[0]);
 
   return chosen.map((definitionId, index) => ({
-    id: `shop-${waveIndex}-${index}-${definitionId}`,
+    id: `shop-${waveIndex}-${normalizedReroll}-${index}-${definitionId}`,
     waveIndex,
     definitionId,
     tier: 1,

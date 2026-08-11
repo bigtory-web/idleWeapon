@@ -4,7 +4,7 @@ export const BATTLEFIELD_COLUMNS = 7 as const;
 export const STARTING_UNLOCKED_COLUMNS = 7 as const;
 export const GRID_ROWS = 5 as const;
 
-export type Tier = 1 | 2 | 3;
+export type Tier = 1 | 2 | 3 | 4 | 5;
 export type BattleSpeed = 0.5 | 1 | 2;
 export type GamePhase =
   | "preparation"
@@ -80,6 +80,8 @@ export interface WeaponDefinition extends ItemDefinitionBase {
   attackKind: WeaponAttackKind;
   maxTargets: number;
   ranged: boolean;
+  /** Tier-independent burden added to an attached character's spawn time. */
+  equipmentCost: number;
   targetPolicy?: "nearest" | "lowest-hp" | "densest" | "best-chain";
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
@@ -152,6 +154,7 @@ export interface SpawnerBlueprint {
   col: number;
   maxActive: number;
   weapons: EquippedWeaponSnapshot[];
+  equipmentCost: number;
   activeCombos?: EquipmentComboId[];
 }
 
@@ -198,6 +201,7 @@ export interface SpawnerStatusView {
   row: number;
   col: number;
   weapons: EquippedWeaponSnapshot[];
+  equipmentCost: number;
   activeCombos: EquipmentComboId[];
   cooldownRemaining: number;
   cooldownDuration: number;

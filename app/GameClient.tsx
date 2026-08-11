@@ -16,7 +16,9 @@ import {
   ITEM_DEFINITIONS,
   STARTING_INVENTORY,
   WEAPON_DAMAGE_MULTIPLIER,
+  WEAPONS,
   WAVE_DEFINITIONS,
+  getCharacterSpawnCooldown,
   isCharacterId,
 } from "@/lib/game/data";
 import { CombatEngine } from "@/lib/game/engine";
@@ -25,6 +27,7 @@ import {
   dropItemOnGrid,
   getActiveWeaponConnections,
   getGridItemAt,
+  getMergeReadyItemIds,
   getOccupiedCells,
   getRotatedItemGeometry,
   normalizeRotation,
@@ -188,6 +191,7 @@ export default function GameClient() {
   const [goldEarned, setGoldEarned] = useState(0);
   const [goldSpent, setGoldSpent] = useState(0);
   const [shopOffers, setShopOffers] = useState<ShopOffer[]>([]);
+  const [shopRerollIndex, setShopRerollIndex] = useState(0);
   const [purchases, setPurchases] = useState<ShopPurchase[]>([]);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -350,7 +354,8 @@ export default function GameClient() {
         transitionTimerRef.current = setTimeout(() => {
           commitInventory(gridRef.current);
           setWaveCursor(event.waveIndex);
-          setShopOffers(generateShopOffers(seedRef.current, event.waveIndex));
+          setShopRerollIndex(0);
+          setShopOffers(generateShopOffers(seedRef.current, event.waveIndex, 0));
           changePhase("shop");
           showToast(`웨이브 완료 · +${event.goldEarned} 골드`, "success");
         }, settingsRef.current.reducedMotion ? 0 : 600);
@@ -407,6 +412,7 @@ export default function GameClient() {
             row: blueprint.row,
             col: blueprint.col,
             weapons: blueprint.weapons,
+            equipmentCost: blueprint.equipmentCost,
             activeCombos: blueprint.activeCombos ?? [],
             cooldownRemaining: 0,
             cooldownDuration: 1,
@@ -456,6 +462,7 @@ export default function GameClient() {
     ? Math.max(0, snapshot.timeLimit - snapshot.elapsed)
     : currentWave?.timeLimit ?? 0;
   const inventoryLocked = phase === "combat" || phase === "transition";
+  const mergeReadyItemIds = getMergeReadyItemIds(gridItems);
 
   const resetRun = useCallback((nextSeed: string) => {
     if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
@@ -475,6 +482,7 @@ export default function GameClient() {
     setPurchases([]);
     purchasesRef.current = [];
     setShopOffers([]);
+    setShopRerollIndex(0);
     setPreviewItemId(null);
     setHoverHelp(null);
     setManualPaused(false);
@@ -537,6 +545,21 @@ export default function GameClient() {
     playTone(690, 0.1);
     showToast(`${ITEM_DEFINITIONS[offer.definitionId].name} 구매 완료`, "success");
   }, [commitInventory, playTone, shopOffers, showToast]);
+
+  const rerollShop = useCallback(() => {
+    if (phaseRef.current !== "shop") return;
+    const nextIndex = shopRerollIndex + 1;
+    setShopRerollIndex(nextIndex);
+    setShopOffers(generateShopOffers(seedRef.current, waveCursor, nextIndex));
+    setHoverHelp(null);
+    playTone(540, 0.07);
+  }, [playTone, shopRerollIndex, waveCursor]);
+
+  const addTestGold = useCallback(() => {
+    goldRef.current += 100;
+    setGold(goldRef.current);
+    showToast("테스트 골드 +100", "success");
+  }, [showToast]);
 
   const togglePause = useCallback(() => {
     if (phaseRef.current !== "combat") return;
@@ -664,6 +687,9 @@ export default function GameClient() {
     const isCharacter = definition.kind === "character";
     const geometry = getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation));
     const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems) : [];
+    const equipmentCost = isCharacter
+      ? activeConnections.reduce((total, { item: weapon }) => total + WEAPONS[weapon.definitionId as WeaponId].equipmentCost, 0)
+      : definition.equipmentCost;
     const spawner = snapshot.spawners.find((entry) => entry.id === item.id);
     const progress = phase === "combat" && isCharacter ? spawner?.progress ?? 0 : 0;
     const squadDetail = spawner
@@ -679,7 +705,7 @@ export default function GameClient() {
       ].filter(Boolean).join(" · ")
       : "";
     const activeCombos = isCharacter
-      ? getActiveEquipmentCombos(activeConnections.map(({ item: weapon }) => ({ weaponId: weapon.definitionId as WeaponId })))
+      ? getActiveEquipmentCombos(item.tier, activeConnections.map(({ item: weapon }) => ({ weaponId: weapon.definitionId as WeaponId, tier: weapon.tier })))
       : [];
     const comboDetail = isCharacter
       ? activeCombos.length
@@ -687,15 +713,18 @@ export default function GameClient() {
         : "활성 조합 없음"
       : `조합식: ${getComboRecipesForWeapon(item.definitionId as WeaponId).map(({ name }) => name).join(", ")}`;
     const weaponStats = !isCharacter
-      ? `공격력 ${Math.round(definition.damage * WEAPON_DAMAGE_MULTIPLIER[item.tier])} · 공격 속도 ${(1 / definition.cooldown).toFixed(2)}/초 · 사거리 ${definition.range} · 대상 ${definition.maxTargets}`
+      ? `코스트 ${definition.equipmentCost} · 공격력 ${Math.round(definition.damage * WEAPON_DAMAGE_MULTIPLIER[item.tier])} · 공격 속도 ${(1 / definition.cooldown).toFixed(2)}/초 · 사거리 ${definition.range} · 대상 ${definition.maxTargets}`
       : "";
+    const spawnCooldown = isCharacter
+      ? getCharacterSpawnCooldown(definition.id, item.tier, equipmentCost)
+      : 0;
     const itemHelp: HoverHelp = {
       key: `item:${item.id}`,
       icon: definition.icon,
       title: `${definition.name} · T${item.tier}`,
       description: definition.description,
-      detail: [characterStats, squadDetail, weaponStats, penaltyDetail ? `장착 효과: ${penaltyDetail}` : "", comboDetail].filter(Boolean).join(" · "),
-      badge: isCharacter ? `생성 ${definition.spawnCooldown.toFixed(1)}초` : undefined,
+      detail: [characterStats, squadDetail, isCharacter ? `총 코스트 ${equipmentCost} · 최종 생성 ${spawnCooldown.toFixed(1)}초` : "", weaponStats, penaltyDetail ? `장착 효과: ${penaltyDetail}` : "", comboDetail].filter(Boolean).join(" · "),
+      badge: isCharacter ? `생성 ${spawnCooldown.toFixed(1)}초` : undefined,
     };
     const showItemHelp = () => {
       setPreviewItemId(item.id);
@@ -767,6 +796,7 @@ export default function GameClient() {
           })}
           {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
           <span className="item-icon">{definition.icon}</span>
+          {!dragGhost && mergeReadyItemIds.has(item.id) && <span className="merge-ready-arrow" aria-label="합성 가능">↑</span>}
           {isCharacter && <span className="character-name-mini" aria-hidden="true">{definition.name}</span>}
           {isCharacter && activeConnections.map(({ item: weapon }, index) => <span key={weapon.id} className={`equipped-weapon-mini equipped-weapon-mini-${index}`} aria-hidden="true">{ITEM_DEFINITIONS[weapon.definitionId].icon}</span>)}
         </span>
@@ -801,7 +831,7 @@ export default function GameClient() {
         <header className="top-chrome">
           <div className="header-combat-info">
             <div><span>웨이브</span><strong>{currentWave?.index ?? 6}/6</strong></div>
-            <div><span>보유 골드</span><strong className="header-gold">● {gold}</strong></div>
+            <div className="header-gold-group"><span>보유 골드</span><strong className="header-gold">● {gold}</strong><button type="button" className="gold-cheat-button" onClick={addTestGold}>+100</button></div>
           </div>
           <div className="top-actions">
             <div className="speed-controls" role="group" aria-label="전투 배속">
@@ -838,14 +868,14 @@ export default function GameClient() {
           </div>}
 
           {phase === "shop" && <div className="shop-panel" aria-label="웨이브 상점">
-            <div className="shop-heading"><strong>웨이브 상점</strong></div>
+            <div className="shop-heading"><strong>웨이브 상점</strong><button type="button" className="shop-reroll-button" onClick={rerollShop}>↻ 리롤</button></div>
             <div className="shop-offers">
               {shopOffers.map((offer) => {
                 const definition = ITEM_DEFINITIONS[offer.definitionId];
                 const purchasable = canPurchaseShopOffer(gridItems, gold, offer, unlockedColumns);
                 const shopDetail = definition.kind === "character"
                   ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 분대 최대 ${definition.squadCaps[offer.tier]}`
-                  : [definition.equipPenalty
+                  : [`코스트 ${definition.equipmentCost}`, definition.equipPenalty
                     ? `장착 효과: ${definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}`
                     : "", `공격력 ${Math.round(definition.damage * WEAPON_DAMAGE_MULTIPLIER[offer.tier])} · 공격 속도 ${(1 / definition.cooldown).toFixed(2)}/초 · 사거리 ${definition.range} · 대상 ${definition.maxTargets}`, `조합식: ${getComboRecipesForWeapon(definition.id as WeaponId).map(({ name }) => name).join(", ")}`].filter(Boolean).join(" · ");
                 const shopHelp: HoverHelp = {

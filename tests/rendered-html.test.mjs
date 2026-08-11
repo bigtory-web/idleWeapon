@@ -81,6 +81,9 @@ test("inventory uses a locked 42px 7x5 board, continuous footprints, adjacency h
   assert.match(styles, /\.tier-1[^{}]*\{[^}]*#aeb3bc/s);
   assert.match(styles, /\.tier-2[^{}]*\{[^}]*#5bc9ff/s);
   assert.match(styles, /\.tier-3[^{}]*\{[^}]*#ffd15e/s);
+  assert.match(styles, /\.tier-4[^{}]*\{[^}]*#b879ff/s);
+  assert.match(styles, /\.tier-5[^{}]*\{[^}]*#ff5268/s);
+  assert.match(client, /className="merge-ready-arrow"/);
   assert.doesNotMatch(styles, /\.socket-target-cell|\.connection-mark/);
   assert.doesNotMatch(client, /"linked-active"/);
   assert.doesNotMatch(styles, /\.grid-item\.linked-active/);
@@ -212,6 +215,27 @@ test("manual merging and named equipment combos replace automatic merging", asyn
   assert.match(client, /조합식:/);
   assert.match(renderer, /effect\.kind === "barrier"/);
   assert.match(renderer, /effect\.kind === "combo"/);
+  assert.match(inventory, /target\.tier === 5/);
+  assert.match(inventory, /getMergeReadyItemIds/);
+  assert.match(combos, /characterTier !== 5/);
+  assert.match(data, /equipmentCost: 3/);
+  assert.match(client, /총 코스트/);
+});
+
+test("test shop controls and staged enemy groups are wired into the deployed UI", async () => {
+  const [client, shop, engine] = await Promise.all([
+    readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/shop.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/engine.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(client, /className="gold-cheat-button"/);
+  assert.match(client, /className="shop-reroll-button"/);
+  assert.match(client, /goldRef\.current \+= 100/);
+  assert.match(shop, /rerollIndex = 0/);
+  assert.match(shop, /reroll:\$\{normalizedReroll\}/);
+  assert.match(engine, /releaseNextEnemyGroup/);
+  assert.match(engine, /nextGroupCooldown/);
+  assert.match(engine, /this\.groupCursor < this\.waveGroups\.length \|\| livingNormalEnemy/);
 });
 
 test("keeps Sites metadata and the production build entrypoints", async () => {

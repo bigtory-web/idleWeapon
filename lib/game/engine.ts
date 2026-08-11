@@ -1,13 +1,13 @@
 import {
   CHARACTERS as RAW_CHARACTERS,
   CHARACTER_HP_AND_POWER_MULTIPLIER,
-  CHARACTER_SPAWN_COOLDOWN_MULTIPLIER,
   ENEMIES as RAW_ENEMIES,
   MAX_PROJECTILES,
   MAX_UNITS,
   UNARMED_ATTACK,
   WEAPONS as RAW_WEAPONS,
   WEAPON_DAMAGE_MULTIPLIER,
+  getCharacterSpawnCooldown,
 } from "./data";
 import { getAllyDeployPosition, getBattleCellPosition } from "./battle-layout";
 import { getActiveEquipmentCombos } from "./combos";
@@ -42,7 +42,7 @@ export const ENEMY_SPAWN_INTERVAL = 0.15;
 export const ALLY_MIN_SPACING = 14;
 export const ENEMY_MIN_SPACING = 16;
 
-type Tier = 1 | 2 | 3;
+type Tier = 1 | 2 | 3 | 4 | 5;
 type Direction = "up" | "down" | "left" | "right";
 type Side = "ally" | "enemy";
 type AttackKind = "slash" | "projectile" | "smash" | "chain";
@@ -70,6 +70,7 @@ interface WeaponDefinitionLike {
   attackKind: AttackKind;
   maxTargets: number;
   ranged: boolean;
+  equipmentCost: number;
   targetPolicy?: "nearest" | "lowest-hp" | "densest" | "best-chain";
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
@@ -111,6 +112,7 @@ interface SpawnerBlueprintLike {
   col: number;
   maxActive?: number;
   weapons: WeaponBlueprintLike[];
+  equipmentCost?: number;
   activeCombos?: EquipmentComboId[];
 }
 
@@ -346,6 +348,7 @@ export class CombatEngine {
   private pendingEnemies: PendingEnemy[] = [];
   private pendingBosses: PendingEnemy[] = [];
   private enemySpawnCooldown = 0;
+  private nextGroupCooldown = 0;
   private spawners: InternalSpawner[] = [];
   private allies: AllyUnit[] = [];
   private enemies: EnemyUnit[] = [];
@@ -386,6 +389,7 @@ export class CombatEngine {
     this.pendingEnemies = [];
     this.pendingBosses = [];
     this.enemySpawnCooldown = 0;
+    this.nextGroupCooldown = 0;
     this.allies = [];
     this.enemies = [];
     this.projectiles = [];
@@ -400,7 +404,7 @@ export class CombatEngine {
         return { blueprint, cooldown: cooldownDuration, cooldownDuration };
       });
 
-    this.queueWaveEnemies();
+    this.releaseNextEnemyGroup();
     this.tickEnemySpawns(0);
     this.updatePeaks();
     this.emitSnapshot(true);
@@ -475,10 +479,11 @@ export class CombatEngine {
         return {
           id: spawner.blueprint.id,
           characterId: spawner.blueprint.characterId,
-          tier: clamp(Math.round(spawner.blueprint.tier), 1, 3) as Tier,
+          tier: clamp(Math.round(spawner.blueprint.tier), 1, 5) as Tier,
           row: spawner.blueprint.row,
           col: spawner.blueprint.col,
           weapons: (spawner.blueprint.weapons ?? []).map((weapon) => ({ ...weapon })),
+          equipmentCost: Math.max(0, finite(spawner.blueprint.equipmentCost ?? 0, 0)),
           activeCombos: [...(spawner.blueprint.activeCombos ?? [])],
           cooldownRemaining: full ? spawner.cooldownDuration : Math.max(0, spawner.cooldown),
           cooldownDuration: spawner.cooldownDuration,
@@ -561,6 +566,7 @@ export class CombatEngine {
     this.pendingEnemies = [];
     this.pendingBosses = [];
     this.enemySpawnCooldown = 0;
+    this.nextGroupCooldown = 0;
     this.waveGroups = [];
     this.phase = "idle";
   }
@@ -568,6 +574,7 @@ export class CombatEngine {
   private simulate(dt: number): void {
     this.elapsed += dt;
     this.tickEffects(dt);
+    this.tickEnemyGroups(dt);
     this.tickEnemySpawns(dt);
     this.tickSpawners(dt);
     this.tickProjectiles(dt);
@@ -617,18 +624,29 @@ export class CombatEngine {
     this.effects = this.effects.filter((effect) => effect.life > 0);
   }
 
-  private queueWaveEnemies(): void {
-    while (this.groupCursor < this.waveGroups.length) {
-      const group = this.waveGroups[this.groupCursor];
-      for (const entry of group.enemies) {
-        const count = Math.max(0, Math.floor(finite(entry.count, 0)));
-        for (let ordinal = 0; ordinal < count; ordinal += 1) {
-          const pending = { enemyId: entry.enemyId, ordinal: this.enemyOrdinal++ };
-          if (ENEMIES[entry.enemyId]?.isBoss) this.pendingBosses.push(pending);
-          else this.pendingEnemies.push(pending);
-        }
+  private releaseNextEnemyGroup(): void {
+    if (this.groupCursor >= this.waveGroups.length) return;
+    const currentIndex = this.groupCursor;
+    const group = this.waveGroups[currentIndex];
+    for (const entry of group.enemies) {
+      const count = Math.max(0, Math.floor(finite(entry.count, 0)));
+      for (let ordinal = 0; ordinal < count; ordinal += 1) {
+        const pending = { enemyId: entry.enemyId, ordinal: this.enemyOrdinal++ };
+        if (ENEMIES[entry.enemyId]?.isBoss) this.pendingBosses.push(pending);
+        else this.pendingEnemies.push(pending);
       }
-      this.groupCursor += 1;
+    }
+    this.groupCursor += 1;
+    const next = this.waveGroups[this.groupCursor];
+    this.nextGroupCooldown = next ? Math.max(0, next.at - group.at) : 0;
+  }
+
+  private tickEnemyGroups(dt: number): void {
+    if (this.groupCursor >= this.waveGroups.length) return;
+    this.nextGroupCooldown = Math.max(0, this.nextGroupCooldown - dt);
+    const livingNormal = this.enemies.some((enemy) => enemy.hp > 0 && !enemy.isBoss);
+    if ((!livingNormal && this.pendingEnemies.length === 0) || this.nextGroupCooldown <= Number.EPSILON) {
+      this.releaseNextEnemyGroup();
     }
   }
 
@@ -643,7 +661,7 @@ export class CombatEngine {
     }
 
     const livingNormalEnemy = this.enemies.some((enemy) => enemy.hp > 0 && !enemy.isBoss);
-    if (livingNormalEnemy || this.pendingBosses.length === 0 || this.unitCount() >= this.unitCap) return;
+    if (this.groupCursor < this.waveGroups.length || livingNormalEnemy || this.pendingBosses.length === 0 || this.unitCount() >= this.unitCap) return;
     const boss = this.pendingBosses.shift();
     if (boss) {
       this.spawnEnemy(boss.enemyId, boss.ordinal);
@@ -951,16 +969,16 @@ export class CombatEngine {
   private spawnAlly(blueprint: SpawnerBlueprintLike): void {
     const definition = CHARACTERS[blueprint.characterId];
     if (!definition) return;
-    const tier = clamp(Math.round(blueprint.tier), 1, 3) as Tier;
+    const tier = clamp(Math.round(blueprint.tier), 1, 5) as Tier;
     const activeCombos = new Set<EquipmentComboId>(blueprint.activeCombos
-      ?? getActiveEquipmentCombos((blueprint.weapons ?? []) as never).map(({ id }) => id));
+      ?? getActiveEquipmentCombos(tier, (blueprint.weapons ?? []) as never).map(({ id }) => id));
     const weapons = (blueprint.weapons ?? [])
       .filter((entry) => Boolean(WEAPONS[entry.weaponId]))
       .map((entry) => {
         const weapon = WEAPONS[entry.weaponId];
         return {
           definitionId: entry.weaponId,
-          tier: clamp(Math.round(entry.tier), 1, 3) as Tier,
+          tier: clamp(Math.round(entry.tier), 1, 5) as Tier,
           direction: entry.direction,
           cooldown: this.random.between(0, Math.min(0.15, weapon.cooldown * 0.2)),
           cooldownDuration: weapon.cooldown
@@ -1128,8 +1146,10 @@ export class CombatEngine {
   private getSpawnerCooldown(blueprint: SpawnerBlueprintLike): number {
     const definition = CHARACTERS[blueprint.characterId];
     if (!definition) return Number.POSITIVE_INFINITY;
-    const tier = clamp(Math.round(blueprint.tier), 1, 3) as Tier;
-    return definition.spawnCooldown * CHARACTER_SPAWN_COOLDOWN_MULTIPLIER[tier];
+    const tier = clamp(Math.round(blueprint.tier), 1, 5) as Tier;
+    const equipmentCost = Math.max(0, finite(blueprint.equipmentCost
+      ?? (blueprint.weapons ?? []).reduce((total, weapon) => total + (WEAPONS[weapon.weaponId]?.equipmentCost ?? 0), 0), 0));
+    return getCharacterSpawnCooldown(blueprint.characterId as keyof typeof CHARACTERS, tier, equipmentCost);
   }
 
   private activeCountForSpawner(spawnerId: string): number {

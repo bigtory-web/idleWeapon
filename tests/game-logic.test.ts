@@ -13,6 +13,7 @@ import {
   WAVE_DEFINITIONS,
   WEAPONS,
   WEAPON_DAMAGE_MULTIPLIER,
+  getCharacterSpawnCooldown,
   getWaveEnemyTotal,
 } from "../lib/game/data";
 import { ALLY_MIN_SPACING, CombatEngine, ENEMY_MIN_SPACING, ENEMY_SPAWN_INTERVAL } from "../lib/game/engine";
@@ -25,6 +26,7 @@ import {
   getActiveWeaponConnections,
   getAdjacentWeaponConnections,
   getCharactersSharingWeapon,
+  getMergeReadyItemIds,
   getOccupiedCells,
   getRotatedItemGeometry,
   moveGridItem,
@@ -54,19 +56,20 @@ test("data keeps combat stats while characters use one cell and enemies keep the
   assert.deepEqual([CHARACTERS.shieldbearer.hp, CHARACTERS.shieldbearer.moveSpeed, CHARACTERS.shieldbearer.spawnCooldown], [180, 27, 6]);
   assert.deepEqual([CHARACTERS.scout.hp, CHARACTERS.scout.moveSpeed, CHARACTERS.scout.spawnCooldown], [80, 42, 3.8]);
   assert.deepEqual([CHARACTERS.sharpshooter.hp, CHARACTERS.sharpshooter.moveSpeed, CHARACTERS.sharpshooter.spawnCooldown], [90, 30, 5.2]);
-  assert.deepEqual(CHARACTER_HP_AND_POWER_MULTIPLIER, { 1: 1, 2: 1.6, 3: 2.4 });
-  assert.deepEqual(CHARACTER_SPAWN_COOLDOWN_MULTIPLIER, { 1: 1, 2: 0.9, 3: 0.8 });
-  assert.deepEqual(CHARACTERS.shieldbearer.squadCaps, { 1: 1, 2: 1, 3: 1 });
+  assert.deepEqual(CHARACTER_HP_AND_POWER_MULTIPLIER, { 1: 1, 2: 1.6, 3: 2.4, 4: 3.2, 5: 4 });
+  assert.deepEqual(CHARACTER_SPAWN_COOLDOWN_MULTIPLIER, { 1: 1, 2: 0.9, 3: 0.8, 4: 0.75, 5: 0.7 });
+  assert.deepEqual(CHARACTERS.shieldbearer.squadCaps, { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 });
   assert.deepEqual(CHARACTERS.shieldbearer.footprint, [{ row: 0, col: 0 }]);
   assert.deepEqual(CHARACTERS.scout.footprint, [{ row: 0, col: 0 }]);
   assert.deepEqual(CHARACTERS.sharpshooter.footprint, [{ row: 0, col: 0 }]);
-  assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 2, 2: 4, 3: 6 });
-  assert.deepEqual(CHARACTERS.sharpshooter.squadCaps, { 1: 2, 2: 3, 3: 5 });
+  assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 2, 2: 4, 3: 6, 4: 6, 5: 6 });
+  assert.deepEqual(CHARACTERS.sharpshooter.squadCaps, { 1: 2, 2: 3, 3: 5, 4: 5, 5: 5 });
   assert.deepEqual(Object.values(WEAPONS).map(({ footprint }) => footprint.length), [2, 3, 3, 2, 2, 2]);
   assert.deepEqual(Object.values(WEAPONS).map(({ damage, cooldown, range }) => [damage, cooldown, range]), [
     [13, 0.7, 28], [10, 0.9, 180], [24, 1.4, 32], [8, 1, 150], [5, 1.2, 27], [7, 1.2, 135],
   ]);
-  assert.deepEqual(WEAPON_DAMAGE_MULTIPLIER, { 1: 1, 2: 1.7, 3: 2.7 });
+  assert.deepEqual(WEAPON_DAMAGE_MULTIPLIER, { 1: 1, 2: 1.7, 3: 2.7, 4: 3.6, 5: 4.5 });
+  assert.deepEqual(Object.values(WEAPONS).map(({ equipmentCost }) => equipmentCost), [2, 3, 3, 2, 2, 2]);
   assert.equal(WEAPONS.sword.equipPenalty?.moveSpeedMultiplier, 0.94);
   assert.equal(WEAPONS.bow.equipPenalty?.hpMultiplier, 0.9);
   assert.equal(LATER_WAVE_ENEMY_COUNT_MULTIPLIER, 0.7);
@@ -164,6 +167,9 @@ test("shop offers are deterministic and mix character and weapon items", () => {
   assert.equal(new Set(first.map(({ definitionId }) => definitionId)).size, 3);
   assert.equal(first.some(({ definitionId }) => definitionId in CHARACTERS), true);
   assert.equal(first.some(({ definitionId }) => definitionId in WEAPONS), true);
+  assert.deepEqual(generateShopOffers("prototype-001", 2, 3), generateShopOffers("prototype-001", 2, 3));
+  assert.notDeepEqual(first, generateShopOffers("prototype-001", 2, 1));
+  assert.equal(generateShopOffers("prototype-001", 2, 1).every(({ tier, purchased }) => tier === 1 && !purchased), true);
 });
 
 test("shop purchases always occupy a separate footprint and reject a full backpack", () => {
@@ -225,25 +231,54 @@ test("weapons and characters merge only when directly dropped on an identical ti
   assert.notEqual(dropItemOnGrid({ gridItems: [item("s", "sword", 0, 0), item("b", "bow", 2, 2)], pendingRewards: [] }, "s", { row: 2, col: 2 }).action, "merged");
 });
 
+test("manual merging reaches T5, refuses T5 pairs, and marks every available pair", () => {
+  for (const tier of [1, 2, 3, 4] as Tier[]) {
+    const state = { gridItems: [item("source", "sword", 0, 0, tier), item("target", "sword", 2, 0, tier)], pendingRewards: [] };
+    assert.deepEqual([...getMergeReadyItemIds(state.gridItems)].sort(), ["source", "target"]);
+    const merged = dropItemOnGrid(state, "source", { row: 2, col: 0 });
+    assert.equal(merged.success, true);
+    assert.equal(merged.gridItems[0]?.tier, tier + 1);
+  }
+  const maxed = { gridItems: [item("source", "sword", 0, 0, 5), item("target", "sword", 2, 0, 5)], pendingRewards: [] };
+  const refused = dropItemOnGrid(maxed, "source", { row: 2, col: 0 });
+  assert.equal(refused.success, false);
+  assert.equal(refused.reason, "max-tier");
+  assert.equal(getMergeReadyItemIds(maxed.gridItems).size, 0);
+});
+
 test("twelve named recipes activate once while duplicate equipment uses its own recipe", () => {
   assert.equal(EQUIPMENT_COMBOS.length, 12);
-  const combos = getActiveEquipmentCombos([
-    { weaponId: "sword" }, { weaponId: "sword" }, { weaponId: "shield" }, { weaponId: "spellbook" },
-  ]).map(({ id }) => id);
+  const weapons = [
+    { weaponId: "sword", tier: 5 }, { weaponId: "sword", tier: 5 }, { weaponId: "shield", tier: 5 }, { weaponId: "spellbook", tier: 5 },
+  ] as const;
+  assert.deepEqual(getActiveEquipmentCombos(4, weapons), []);
+  assert.deepEqual(getActiveEquipmentCombos(5, weapons.map((weapon, index) => index === 0 ? { ...weapon, tier: 4 as const } : weapon)).map(({ id }) => id), ["vanguard", "arcane-aegis", "spellblade"]);
+  const combos = getActiveEquipmentCombos(5, weapons).map(({ id }) => id);
   assert.deepEqual(combos, ["dual-blades", "vanguard", "arcane-aegis", "spellblade"]);
   assert.equal(new Set(combos).size, combos.length);
 });
 
+test("each recipe requires a T5 character and only T5 participating weapons", () => {
+  for (const recipe of EQUIPMENT_COMBOS) {
+    const weapons = recipe.weapons.map((weaponId) => ({ weaponId, tier: 5 as const }));
+    assert.equal(getActiveEquipmentCombos(5, weapons).some(({ id }) => id === recipe.id), true, recipe.id);
+    assert.equal(getActiveEquipmentCombos(4, weapons).length, 0, recipe.id);
+    assert.equal(getActiveEquipmentCombos(5, weapons.map((weapon, index) => index === 0 ? { ...weapon, tier: 4 as const } : weapon)).some(({ id }) => id === recipe.id), false, recipe.id);
+  }
+});
+
 test("adjacent equipment writes every active combo into the spawner blueprint", () => {
   const grid = [
-    item("hero", "shieldbearer", 2, 3),
-    item("sword", "sword", 2, 1),
-    item("shield", "shield", 1, 4),
-    item("book", "spellbook", 3, 2),
+    item("hero", "shieldbearer", 2, 3, 5),
+    item("sword", "sword", 2, 1, 5),
+    item("shield", "shield", 1, 4, 5),
+    item("book", "spellbook", 3, 2, 5),
   ];
   const blueprint = deriveSpawnerBlueprints(grid)[0]!;
   assert.deepEqual(blueprint.weapons.map(({ weaponId }) => weaponId), ["shield", "sword", "spellbook"]);
   assert.deepEqual(blueprint.activeCombos, ["vanguard", "arcane-aegis", "spellblade"]);
+  assert.equal(blueprint.equipmentCost, 6);
+  assert.equal(Math.abs(getCharacterSpawnCooldown("shieldbearer", 5, blueprint.equipmentCost) - 6.72) < 0.000001, true);
 });
 
 test("arcane aegis creates a visible shield and formation movement preserves the home row", () => {
@@ -291,8 +326,8 @@ test("spawners wait a full cooldown, report progress, and stop at squad capacity
   assert.deepEqual(engine.getSnapshot().spawners.map(({ progress, activeCount, maxActive }) => [progress, activeCount, maxActive]), [[0, 0, 2], [0, 0, 1]]);
   stepFor(engine, 2);
   const progress = engine.getSnapshot().spawners.map(({ progress: value }) => value);
-  assert.equal(progress[0]! > 0.52 && progress[0]! < 0.54, true);
-  assert.equal(progress[1]! > 0.32 && progress[1]! < 0.34, true);
+  assert.equal(progress[0]! > 0.40 && progress[0]! < 0.41, true);
+  assert.equal(progress[1]! > 0.27 && progress[1]! < 0.29, true);
   engine.pause("test");
   const paused = engine.getSnapshot().spawners.map(({ progress: value }) => value);
   stepFor(engine, 2);
@@ -322,7 +357,7 @@ test("unit cap preserves the pending enemy queue and resumes as soon as capacity
   engine.dispose();
 });
 
-test("all normal wave groups flatten into a deterministic 0.15 second spawn queue", () => {
+test("enemy groups release after the current group dies or its maximum delay expires", () => {
   const engine = new CombatEngine();
   engine.startWave({
     waveIndex: 2,
@@ -336,7 +371,7 @@ test("all normal wave groups flatten into a deterministic 0.15 second spawn queu
       clearGold: 0,
       groups: [
         { at: 0, enemies: [{ enemyId: "grunt", count: 2 }] },
-        { at: 30, enemies: [{ enemyId: "runner", count: 1 }] },
+        { at: 6, enemies: [{ enemyId: "runner", count: 1 }] },
       ],
     },
   });
@@ -347,8 +382,25 @@ test("all normal wave groups flatten into a deterministic 0.15 second spawn queu
   stepFor(engine, 0.03);
   assert.deepEqual(engine.getSnapshot().enemies.map(({ definitionId }) => definitionId), ["grunt", "grunt"]);
   stepFor(engine, 0.16);
-  assert.deepEqual(engine.getSnapshot().enemies.map(({ definitionId }) => definitionId), ["grunt", "grunt", "runner"]);
+  assert.deepEqual(engine.getSnapshot().enemies.map(({ definitionId }) => definitionId), ["grunt", "grunt"]);
+  (engine as unknown as { enemies: Array<{ hp: number }> }).enemies.forEach((enemy) => { enemy.hp = 0; });
+  stepFor(engine, 0.2);
+  assert.deepEqual(engine.getSnapshot().enemies.map(({ definitionId }) => definitionId), ["runner"]);
   engine.dispose();
+
+  const delayed = new CombatEngine();
+  delayed.startWave({
+    waveIndex: 2, seed: "forced-group", baseHp: 100, spawners: [],
+    wave: { index: 2, name: "forced", timeLimit: 60, clearGold: 0, groups: [
+      { at: 0, enemies: [{ enemyId: "armored", count: 1 }] },
+      { at: 6, enemies: [{ enemyId: "runner", count: 1 }] },
+    ] },
+  });
+  stepFor(delayed, 5.9);
+  assert.equal(delayed.getSnapshot().enemies.some(({ definitionId }) => definitionId === "runner"), false);
+  stepFor(delayed, 0.3);
+  assert.equal(delayed.getSnapshot().enemies.some(({ definitionId }) => definitionId === "runner"), true);
+  delayed.dispose();
 });
 
 test("the boss waits until every queued and living normal enemy is gone", () => {

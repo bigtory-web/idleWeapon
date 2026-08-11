@@ -34,19 +34,31 @@ export const CHARACTER_HP_AND_POWER_MULTIPLIER: Record<Tier, number> = {
   1: 1,
   2: 1.6,
   3: 2.4,
+  4: 3.2,
+  5: 4,
 };
 
 export const CHARACTER_SPAWN_COOLDOWN_MULTIPLIER: Record<Tier, number> = {
   1: 1,
   2: 0.9,
   3: 0.8,
+  4: 0.75,
+  5: 0.7,
 };
 
 export const WEAPON_DAMAGE_MULTIPLIER: Record<Tier, number> = {
   1: 1,
   2: 1.7,
   3: 2.7,
+  4: 3.6,
+  5: 4.5,
 };
+
+export function getCharacterSpawnCooldown(characterId: CharacterId, tier: Tier, equipmentCost = 0): number {
+  return CHARACTERS[characterId].spawnCooldown
+    * CHARACTER_SPAWN_COOLDOWN_MULTIPLIER[tier]
+    * (1 + Math.max(0, equipmentCost) * 0.1);
+}
 
 export const UNARMED_ATTACK = {
   damage: 8,
@@ -69,7 +81,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     meleeDamageMultiplier: 1.25,
     rangedDamageMultiplier: 0.9,
     rangeMultiplier: 1,
-    squadCaps: { 1: 1, 2: 1, 3: 1 },
+    squadCaps: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
     combatRole: "guard",
     footprint: [{ row: 0, col: 0 }],
   },
@@ -87,7 +99,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     meleeDamageMultiplier: 0.85,
     rangedDamageMultiplier: 0.85,
     rangeMultiplier: 1,
-    squadCaps: { 1: 2, 2: 4, 3: 6 },
+    squadCaps: { 1: 2, 2: 4, 3: 6, 4: 6, 5: 6 },
     combatRole: "flanker",
     footprint: [{ row: 0, col: 0 }],
   },
@@ -105,7 +117,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     meleeDamageMultiplier: 0.8,
     rangedDamageMultiplier: 1.3,
     rangeMultiplier: 1.3,
-    squadCaps: { 1: 2, 2: 3, 3: 5 },
+    squadCaps: { 1: 2, 2: 3, 3: 5, 4: 5, 5: 5 },
     combatRole: "marksman",
     footprint: [{ row: 0, col: 0 }],
   },
@@ -126,6 +138,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "slash",
     maxTargets: 2,
     ranged: false,
+    equipmentCost: 2,
     targetPolicy: "nearest",
     equipPenalty: { moveSpeedMultiplier: 0.94 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
@@ -144,6 +157,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "projectile",
     maxTargets: 1,
     ranged: true,
+    equipmentCost: 3,
     targetPolicy: "lowest-hp",
     equipPenalty: { hpMultiplier: 0.9 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 }],
@@ -162,6 +176,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "smash",
     maxTargets: 4,
     ranged: false,
+    equipmentCost: 3,
     targetPolicy: "densest",
     effectRadius: 40,
     armorPierce: 1,
@@ -182,6 +197,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "chain",
     maxTargets: 2,
     ranged: true,
+    equipmentCost: 2,
     targetPolicy: "best-chain",
     secondaryDamageMultiplier: 0.65,
     equipPenalty: { hpMultiplier: 0.92 },
@@ -201,6 +217,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "smash",
     maxTargets: 2,
     ranged: false,
+    equipmentCost: 2,
     targetPolicy: "nearest",
     effectRadius: 24,
     equipPenalty: { moveSpeedMultiplier: 0.9 },
@@ -220,6 +237,7 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     attackKind: "projectile",
     maxTargets: 1,
     ranged: true,
+    equipmentCost: 2,
     targetPolicy: "lowest-hp",
     equipPenalty: { hpMultiplier: 0.94 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
