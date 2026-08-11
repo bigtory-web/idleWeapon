@@ -879,7 +879,7 @@ export default function GameClient() {
                   ].filter(Boolean).join(" ")}
                   data-drop-target={!locked && !permanentLocked ? target : undefined}
                 >{item && renderItem(item)}{outpostCell
-                    ? <span className="locked-outpost" aria-hidden="true">🏴</span>
+                    ? <span className="locked-outpost" aria-hidden="true">🏰</span>
                     : (locked || permanentLocked) && <span className="cell-lock" aria-hidden="true">🔒</span>}</div>;
               })}
             </div>
