@@ -80,6 +80,7 @@ interface Settings {
 
 interface HoverHelp {
   key: string;
+  icon: string;
   title: string;
   description: string;
   detail?: string;
@@ -649,6 +650,7 @@ export default function GameClient() {
       : "";
     const itemHelp: HoverHelp = {
       key: `item:${item.id}`,
+      icon: definition.icon,
       title: `${definition.name} · T${item.tier}`,
       description: definition.description,
       detail: [characterStats, penaltyDetail ? `장착 패널티: ${penaltyDetail}` : "", `${activeRelationDetail}${squadDetail}`].filter(Boolean).join(" · "),
@@ -678,7 +680,6 @@ export default function GameClient() {
           `shape-${item.definitionId}`,
           `rotation-${normalizeRotation(item.rotation)}`,
           `tier-${item.tier}`,
-          activeConnections.length || sharingCharacters.length ? "linked-active" : "",
           !dragGhost && drag?.id === item.id ? "dragging" : "",
           !dragGhost && previewItemId === item.id ? "previewing" : "",
         ].filter(Boolean).join(" ")}
@@ -700,21 +701,31 @@ export default function GameClient() {
         onKeyDown={dragGhost ? undefined : (event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
-          {geometry.cells.map((cell) => <span
-            key={`${cell.row}:${cell.col}`}
-            className={[
-              "item-segment",
-              !geometry.cells.some((other) => other.row === cell.row - 1 && other.col === cell.col) ? "edge-top" : "",
-              !geometry.cells.some((other) => other.row === cell.row + 1 && other.col === cell.col) ? "edge-bottom" : "",
-              !geometry.cells.some((other) => other.row === cell.row && other.col === cell.col - 1) ? "edge-left" : "",
-              !geometry.cells.some((other) => other.row === cell.row && other.col === cell.col + 1) ? "edge-right" : "",
-            ].filter(Boolean).join(" ")}
-            style={{ gridRow: cell.row + 1, gridColumn: cell.col + 1 }}
-            aria-hidden="true"
-          >{connectionMarks.filter((mark) => mark.row === cell.row && mark.col === cell.col).map((mark) => <span
-            key={mark.key}
-            className={`connection-mark connection-${mark.direction} connection-active`}
-          >○</span>)}</span>)}
+          {geometry.cells.map((cell) => {
+            const hasTop = geometry.cells.some((other) => other.row === cell.row - 1 && other.col === cell.col);
+            const hasBottom = geometry.cells.some((other) => other.row === cell.row + 1 && other.col === cell.col);
+            const hasLeft = geometry.cells.some((other) => other.row === cell.row && other.col === cell.col - 1);
+            const hasRight = geometry.cells.some((other) => other.row === cell.row && other.col === cell.col + 1);
+            return <span
+              key={`${cell.row}:${cell.col}`}
+              className={[
+                "item-segment",
+                !hasTop ? "edge-top" : "",
+                !hasBottom ? "edge-bottom" : "",
+                !hasLeft ? "edge-left" : "",
+                !hasRight ? "edge-right" : "",
+              ].filter(Boolean).join(" ")}
+              style={{ gridRow: cell.row + 1, gridColumn: cell.col + 1 }}
+              aria-hidden="true"
+            >
+              {hasRight && <span className={`segment-bridge bridge-right ${!hasTop ? "bridge-edge-top" : ""} ${!hasBottom ? "bridge-edge-bottom" : ""}`} />}
+              {hasBottom && <span className={`segment-bridge bridge-down ${!hasLeft ? "bridge-edge-left" : ""} ${!hasRight ? "bridge-edge-right" : ""}`} />}
+              {connectionMarks.filter((mark) => mark.row === cell.row && mark.col === cell.col).map((mark) => <span
+                key={mark.key}
+                className={`connection-mark connection-${mark.direction} connection-active`}
+              >○</span>)}
+            </span>;
+          })}
           {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
           <span className="item-icon">{definition.icon}</span>
           {isCharacter && <span className="character-name-mini" aria-hidden="true">{definition.name}</span>}
@@ -791,8 +802,8 @@ export default function GameClient() {
           {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay">
             <div className="battle-overlay-card">
               <strong>{phase === "preparation" ? `웨이브 ${currentWave?.index ?? 1}` : phase === "transition" ? "웨이브 완료" : "일시정지"}</strong>
-              <p>{phase === "preparation" ? "○가 향한 칸에 캐릭터를 맞대세요. 닿은 무기는 티어와 관계없이 모두 장착돼요." : phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>
-              {phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>웨이브 시작</button>}
+              {phase !== "preparation" && <p>{phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>}
+              {phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>전투 시작</button>}
             </div>
           </div>}
 
@@ -809,6 +820,7 @@ export default function GameClient() {
                     : undefined;
                 const shopHelp: HoverHelp = {
                   key: `shop:${offer.id}`,
+                  icon: definition.icon,
                   title: `${definition.name} · T${offer.tier}`,
                   description: definition.description,
                   detail: shopDetail,
@@ -833,17 +845,20 @@ export default function GameClient() {
                     aria-disabled={!purchasable}
                     aria-describedby="fixed-hover-help"
                     onClick={() => buyOffer(offer.id)}
-                  >{offer.purchased ? "구매 완료" : `${offer.price}골드 구매`}</button>
+                  >{offer.purchased ? "완료" : `${offer.price}골드`}</button>
                 </article>;
               })}
             </div>
-            <button type="button" className="primary-action shop-next-button" onClick={startWave}>다음 웨이브 시작</button>
+            <button type="button" className="primary-action shop-next-button" onClick={startWave}>전투 시작</button>
           </div>}
 
           {hoverHelp && <div id="fixed-hover-help" className="fixed-hover-help" role="tooltip">
-            <strong>{hoverHelp.title}</strong>
-            <span>{hoverHelp.description}</span>
-            {hoverHelp.detail && <span className="fixed-hover-detail">{hoverHelp.detail}</span>}
+            <span className="fixed-hover-icon" aria-hidden="true">{hoverHelp.icon}</span>
+            <span className="fixed-hover-copy">
+              <strong>{hoverHelp.title}</strong>
+              <span>{hoverHelp.description}</span>
+              {hoverHelp.detail && <span className="fixed-hover-detail">{hoverHelp.detail}</span>}
+            </span>
           </div>}
         </section>
 

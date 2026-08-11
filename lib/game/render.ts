@@ -4,6 +4,7 @@ import type {
   CombatUnitView,
   ProjectileView,
 } from "./types";
+import { GRID_COLUMNS, GRID_ROWS } from "./types";
 import { CHARACTERS } from "./data";
 import { ALLY_DEPLOY_Y_MAX, ALLY_DEPLOY_Y_MIN, getAllyDeployPosition } from "./battle-layout";
 
@@ -248,6 +249,7 @@ export function renderBattle(
   drawNightBattlefield(context, snapshot.elapsed, width, height);
 
   context.save();
+  drawDeploymentGrid(context);
   for (const spawner of snapshot.spawners) drawSpawnerPlatform(context, spawner);
   drawBase(context, snapshot);
   const projectedEffects = snapshot.effects.map((effect) => {
@@ -418,6 +420,33 @@ function drawTree(context: CanvasRenderingContext2D, x: number, y: number, scale
   context.restore();
 }
 
+function drawDeploymentGrid(context: CanvasRenderingContext2D): void {
+  context.save();
+  for (let row = 0; row < GRID_ROWS; row += 1) {
+    for (let col = 0; col < GRID_COLUMNS; col += 1) {
+      const deploy = getAllyDeployPosition(row, col);
+      const center = projectBattlePoint(deploy.x, deploy.y);
+      const horizontalNeighbor = projectBattlePoint(
+        getAllyDeployPosition(row, col < GRID_COLUMNS - 1 ? col + 1 : col - 1).x,
+        getAllyDeployPosition(row, col < GRID_COLUMNS - 1 ? col + 1 : col - 1).y,
+      );
+      const verticalNeighbor = projectBattlePoint(
+        getAllyDeployPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).x,
+        getAllyDeployPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).y,
+      );
+      const tileWidth = Math.abs(horizontalNeighbor.x - center.x) * 0.82;
+      const tileHeight = Math.abs(verticalNeighbor.y - center.y) * 0.78;
+      context.fillStyle = (row + col) % 2 === 0 ? "rgba(99,225,213,.055)" : "rgba(231,215,255,.035)";
+      context.strokeStyle = "rgba(116,226,216,.12)";
+      context.lineWidth = 0.75;
+      roundedRectPath(context, center.x - tileWidth / 2, center.y - tileHeight / 2, tileWidth, tileHeight, 2);
+      context.fill();
+      context.stroke();
+    }
+  }
+  context.restore();
+}
+
 function drawBase(context: CanvasRenderingContext2D, snapshot: SnapshotLike): void {
   const ratio = clamp(snapshot.baseHp / Math.max(1, snapshot.maxBaseHp), 0, 1);
   const point = projectBattlePoint(29, 260);
@@ -452,23 +481,6 @@ function drawBase(context: CanvasRenderingContext2D, snapshot: SnapshotLike): vo
   context.stroke();
   context.shadowBlur = 0;
 
-  context.fillStyle = "rgba(18,10,34,.9)";
-  roundedRectPath(context, -43, -57, 86, 20, 6);
-  context.fill();
-  context.fillStyle = COLORS.white;
-  context.font = "800 10px ui-rounded, system-ui, sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(`기지 HP ${Math.ceil(snapshot.baseHp)}/${snapshot.maxBaseHp}`, 0, -50);
-  context.fillStyle = "rgba(5,3,12,.78)";
-  roundedRectPath(context, -38, -43, 76, 5, 2.5);
-  context.fill();
-  if (ratio > 0) {
-    context.fillStyle = ratio > 0.35 ? "#5ee3c0" : COLORS.red;
-    roundedRectPath(context, -38, -43, 76 * ratio, 5, 2.5);
-    context.fill();
-  }
-
   context.fillStyle = "rgba(21,13,37,.75)";
   roundedRectPath(context, -22, 33, 44, 7, 3.5);
   context.fill();
@@ -485,7 +497,7 @@ function drawSpawnerPlatform(context: CanvasRenderingContext2D, spawner: Spawner
   if (!definition) return;
   const deploy = getAllyDeployPosition(spawner.row, spawner.col);
   const point = projectBattlePoint(deploy.x, deploy.y);
-  const scale = point.scale * 0.78;
+  const scale = point.scale * 1.05;
   context.save();
   context.translate(point.x, point.y);
   context.scale(scale, scale);

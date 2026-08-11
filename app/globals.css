@@ -1655,9 +1655,9 @@ textarea:focus-visible {
 
 .grid-item .item-card {
   display: grid;
-  grid-template-columns: repeat(var(--item-cols, 1), minmax(0, 1fr));
-  grid-template-rows: repeat(var(--item-rows, 1), minmax(0, 1fr));
-  gap: 0;
+  grid-template-columns: repeat(var(--item-cols, 1), var(--board-cell));
+  grid-template-rows: repeat(var(--item-rows, 1), var(--board-cell));
+  gap: 4px;
   overflow: visible;
   border: 0;
   border-radius: 0;
@@ -1673,11 +1673,25 @@ textarea:focus-visible {
   min-height: 0;
   border: 0;
   border-radius: 0;
-  background:
-    radial-gradient(circle at 38% 24%, rgba(255, 255, 255, 0.25), transparent 30%),
-    linear-gradient(155deg, color-mix(in srgb, var(--item-color, #725b93) 42%, #41364f), #211a2c 70%);
+  background: var(--footprint-bg);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), inset 0 1px 0 rgba(255,255,255,.16), inset 0 -4px 0 rgba(0,0,0,.18);
+  pointer-events: auto;
 }
+
+.segment-bridge {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  background: var(--footprint-bg);
+  pointer-events: auto;
+}
+
+.bridge-right { top: 0; bottom: 0; left: 100%; width: 4px; }
+.bridge-down { top: 100%; right: 0; left: 0; height: 4px; }
+.bridge-edge-top { border-top: 2px solid var(--tier-outline); }
+.bridge-edge-bottom { border-bottom: 2px solid var(--tier-outline); }
+.bridge-edge-left { border-left: 2px solid var(--tier-outline); }
+.bridge-edge-right { border-right: 2px solid var(--tier-outline); }
 
 .tier-1 { --tier-outline: #aeb3bc; }
 .tier-2 { --tier-outline: #5bc9ff; }
@@ -1686,9 +1700,11 @@ textarea:focus-visible {
 .item-segment.edge-bottom { border-bottom: 2px solid var(--tier-outline); }
 .item-segment.edge-left { border-left: 2px solid var(--tier-outline); }
 .item-segment.edge-right { border-right: 2px solid var(--tier-outline); }
-.tier-2 .item-segment.edge-top, .tier-2 .item-segment.edge-bottom, .tier-2 .item-segment.edge-left, .tier-2 .item-segment.edge-right { border-width: 3px; box-shadow: inset 0 0 10px rgba(91,201,255,.14), 0 0 5px rgba(91,201,255,.24); }
-.tier-3 .item-segment { background: radial-gradient(circle at 38% 24%, rgba(255,241,173,.28), transparent 30%), linear-gradient(155deg, color-mix(in srgb, var(--item-color, #725b93) 52%, #57441f), #211a2c 70%); }
-.tier-3 .item-segment.edge-top, .tier-3 .item-segment.edge-bottom, .tier-3 .item-segment.edge-left, .tier-3 .item-segment.edge-right { border-width: 3px; box-shadow: inset 0 0 12px rgba(255,209,94,.18), 0 0 6px rgba(255,209,94,.32); }
+.tier-2 .item-segment.edge-top, .tier-2 .item-segment.edge-bottom, .tier-2 .item-segment.edge-left, .tier-2 .item-segment.edge-right,
+.tier-2 .segment-bridge { border-width: 3px; box-shadow: inset 0 0 10px rgba(91,201,255,.14), 0 0 5px rgba(91,201,255,.24); }
+.tier-3 { --footprint-bg: radial-gradient(circle at 38% 24%, rgba(255,241,173,.28), transparent 30%), linear-gradient(155deg, color-mix(in srgb, var(--item-color, #725b93) 52%, #57441f), #211a2c 70%); }
+.tier-3 .item-segment.edge-top, .tier-3 .item-segment.edge-bottom, .tier-3 .item-segment.edge-left, .tier-3 .item-segment.edge-right,
+.tier-3 .segment-bridge { border-width: 3px; box-shadow: inset 0 0 12px rgba(255,209,94,.18), 0 0 6px rgba(255,209,94,.32); }
 .item-segment.edge-top.edge-left { border-top-left-radius: 10px; }
 .item-segment.edge-top.edge-right { border-top-right-radius: 10px; }
 .item-segment.edge-bottom.edge-left { border-bottom-left-radius: 10px; }
@@ -1697,10 +1713,6 @@ textarea:focus-visible {
 .grid-item:focus-visible .item-segment,
 .grid-item.previewing .item-segment {
   box-shadow: inset 0 0 0 2px #fff, inset 0 -4px 0 rgba(0,0,0,.18), 0 3px 7px rgba(0,0,0,.3);
-}
-
-.grid-item.linked-active .item-segment {
-  box-shadow: inset 0 0 0 2px rgba(90,238,217,.72), inset 0 -4px 0 rgba(0,0,0,.18), 0 0 8px rgba(90,238,217,.2);
 }
 
 .grid-item .item-icon,
@@ -1859,6 +1871,15 @@ textarea:focus-visible {
   text-align: center;
 }
 
+.shop-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.shop-offers {
+  align-self: center;
+}
+
 .shop-heading > strong {
   color: #f8f2ff;
   font-size: 15px;
@@ -1908,6 +1929,10 @@ textarea:focus-visible {
   cursor: default;
 }
 
+.shop-next-button {
+  margin-top: 0;
+}
+
 .fixed-hover-help {
   position: absolute;
   z-index: 24;
@@ -1915,22 +1940,42 @@ textarea:focus-visible {
   bottom: 61px;
   left: 12px;
   display: grid;
-  gap: 2px;
-  min-height: 48px;
-  padding: 7px 10px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 72px;
+  padding: 8px 11px;
   border: 1px solid rgba(210,186,238,.46);
   border-radius: 11px;
   background: rgba(16,10,29,.95);
   box-shadow: 0 8px 20px rgba(4,2,10,.48), inset 0 1px rgba(255,255,255,.06);
   color: #ddd3e9;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.35;
   pointer-events: none;
 }
 
 .fixed-hover-help strong {
   color: #fff;
-  font-size: 10px;
+  font-size: 12px;
+}
+
+.fixed-hover-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-size: 27px;
+}
+
+.fixed-hover-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
 }
 
 .fixed-hover-detail {
@@ -1948,7 +1993,7 @@ textarea:focus-visible {
 }
 
 .inventory-grid {
-  --board-cell: min(38px, calc((100vw - 54px) / 7));
+  --board-cell: min(42px, calc((100vw - 54px) / 7));
   display: grid;
   grid-template-columns: repeat(7, var(--board-cell));
   grid-template-rows: repeat(5, var(--board-cell));
@@ -1973,12 +2018,18 @@ textarea:focus-visible {
   left: -1px;
   width: var(--item-width, 100%);
   height: var(--item-height, 100%);
-}
-
-.item-segment {
-  background:
+  --footprint-bg:
     radial-gradient(circle at 38% 24%, rgba(255,255,255,.2), transparent 31%),
     linear-gradient(155deg, color-mix(in srgb, var(--item-color, #725b93) 55%, #392d49), #17111f 72%);
+}
+
+.shape-hammer.rotation-0 { clip-path: polygon(0 0, 48% 0, 48% 52%, 100% 52%, 100% 100%, 0 100%); }
+.shape-hammer.rotation-90 { clip-path: polygon(0 0, 100% 0, 100% 48%, 48% 48%, 48% 100%, 0 100%); }
+.shape-hammer.rotation-180 { clip-path: polygon(0 0, 100% 0, 100% 100%, 52% 100%, 52% 52%, 0 52%); }
+.shape-hammer.rotation-270 { clip-path: polygon(52% 0, 100% 0, 100% 100%, 0 100%, 0 52%, 52% 52%); }
+
+.item-segment {
+  background: var(--footprint-bg);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), inset 0 -3px 0 rgba(0,0,0,.24);
 }
 

@@ -14,7 +14,7 @@ import {
   WEAPON_DAMAGE_MULTIPLIER,
   getWaveEnemyTotal,
 } from "../lib/game/data";
-import { CombatEngine } from "../lib/game/engine";
+import { CombatEngine, ENEMY_SPAWN_INTERVAL } from "../lib/game/engine";
 import { getAllyDeployPosition } from "../lib/game/battle-layout";
 import {
   autoMergeInventory,
@@ -94,6 +94,9 @@ test("footprints rotate into normalized bounds and reject edges or overlap", () 
   assert.equal(canPlaceItem([], sword, { row: 0, col: 5 }), true);
   assert.equal(canPlaceItem([], sword, { row: 0, col: 6 }), false);
   assert.equal(canPlaceItem([item("block", "scout", 0, 1)], sword, { row: 0, col: 0 }), false);
+  const hammer = item("hammer", "hammer", 1, 1);
+  assert.deepEqual(getOccupiedCells(hammer), [{ row: 1, col: 1 }, { row: 2, col: 1 }, { row: 2, col: 2 }]);
+  assert.equal(canPlaceItem([item("l-hole", "scout", 1, 2)], hammer, { row: 1, col: 1 }), true);
 });
 
 test("rotation keeps the anchor and reverts when the rotated footprint does not fit", () => {
@@ -217,8 +220,12 @@ test("spawners wait a full cooldown, report progress, and stop at squad capacity
     seed: "spawner-test",
     baseHp: 100,
     spawners: deriveSpawnerBlueprints(STARTING_INVENTORY),
-    wave: { index: 1, name: "test", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [] }] },
+    wave: { index: 1, name: "test", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [{ enemyId: "grunt", count: 1 }] }] },
   });
+  const durableEnemy = (engine as unknown as { enemies: Array<{ hp: number; maxHp: number; damage: number; moveSpeed: number }> }).enemies[0]!;
+  durableEnemy.hp = durableEnemy.maxHp = 1_000_000;
+  durableEnemy.damage = 0;
+  durableEnemy.moveSpeed = 0;
   assert.equal(events.some(({ type }) => type === "ally-spawned"), false);
   assert.deepEqual(engine.getSnapshot().spawners.map(({ progress, activeCount, maxActive }) => [progress, activeCount, maxActive]), [[0, 0, 2], [0, 0, 4]]);
   stepFor(engine, 2);
@@ -237,20 +244,75 @@ test("spawners wait a full cooldown, report progress, and stop at squad capacity
   engine.dispose();
 });
 
-test("unit cap leaves a ready spawner at 100 percent instead of discarding it", () => {
-  const engine = new CombatEngine();
+test("unit cap preserves the pending enemy queue and resumes as soon as capacity opens", () => {
+  const engine = new CombatEngine({ unitCap: 2 });
   engine.startWave({
     waveIndex: 1,
     seed: "cap-test",
     baseHp: 100,
-    spawners: [{ id: "scout", characterId: "scout", tier: 1, row: 0, col: 0, maxActive: 4, weapons: [] }],
-    wave: { index: 1, name: "cap", timeLimit: 60, clearGold: 8, groups: [{ at: 0, enemies: [{ enemyId: "armored", count: 160 }] }] },
+    spawners: [],
+    wave: { index: 1, name: "cap", timeLimit: 60, clearGold: 8, groups: [{ at: 0, enemies: [{ enemyId: "armored", count: 4 }] }] },
   });
-  stepFor(engine, 4);
-  const spawner = engine.getSnapshot().spawners[0]!;
-  assert.equal(spawner.activeCount, 0);
-  assert.equal(spawner.progress, 1);
-  assert.equal(spawner.state, "ready");
+  stepFor(engine, 1);
+  assert.equal(engine.getSnapshot().enemies.length, 2);
+  (engine as unknown as { enemies: Array<{ hp: number }> }).enemies[0]!.hp = 0;
+  stepFor(engine, 0.2);
+  assert.equal(engine.getSnapshot().enemies.length, 2);
+  engine.dispose();
+});
+
+test("all normal wave groups flatten into a deterministic 0.15 second spawn queue", () => {
+  const engine = new CombatEngine();
+  engine.startWave({
+    waveIndex: 2,
+    seed: "sequential-wave",
+    baseHp: 100,
+    spawners: [],
+    wave: {
+      index: 2,
+      name: "sequential",
+      timeLimit: 60,
+      clearGold: 0,
+      groups: [
+        { at: 0, enemies: [{ enemyId: "grunt", count: 2 }] },
+        { at: 30, enemies: [{ enemyId: "runner", count: 1 }] },
+      ],
+    },
+  });
+  assert.equal(ENEMY_SPAWN_INTERVAL, 0.15);
+  assert.deepEqual(engine.getSnapshot().enemies.map(({ definitionId }) => definitionId), ["grunt"]);
+  stepFor(engine, 0.14);
+  assert.equal(engine.getSnapshot().enemies.length, 1);
+  stepFor(engine, 0.03);
+  assert.deepEqual(engine.getSnapshot().enemies.map(({ definitionId }) => definitionId), ["grunt", "grunt"]);
+  stepFor(engine, 0.16);
+  assert.deepEqual(engine.getSnapshot().enemies.map(({ definitionId }) => definitionId), ["grunt", "grunt", "runner"]);
+  engine.dispose();
+});
+
+test("the boss waits until every queued and living normal enemy is gone", () => {
+  const engine = new CombatEngine();
+  engine.startWave({
+    waveIndex: 6,
+    seed: "boss-gate",
+    baseHp: 100,
+    spawners: [],
+    wave: {
+      index: 6,
+      name: "boss gate",
+      timeLimit: 120,
+      clearGold: 0,
+      groups: [{ at: 0, enemies: [{ enemyId: "boss", count: 1 }, { enemyId: "grunt", count: 2 }] }],
+    },
+  });
+  stepFor(engine, 0.2);
+  assert.equal(engine.getSnapshot().enemies.some(({ isBoss }) => isBoss), false);
+  (engine as unknown as { enemies: Array<{ hp: number; isBoss: boolean }> }).enemies.forEach((enemy) => {
+    if (!enemy.isBoss) enemy.hp = 0;
+  });
+  stepFor(engine, 0.04);
+  assert.equal(engine.getSnapshot().enemies.some(({ isBoss }) => isBoss), true);
+  assert.equal(engine.getSnapshot().phase, "running");
   engine.dispose();
 });
 
@@ -264,9 +326,10 @@ test("seven columns and five rows map to distinct allied deployment positions an
       { id: "back-top", characterId: "shieldbearer", tier: 1, row: 0, col: 0, maxActive: 1, weapons: [] },
       { id: "front-bottom", characterId: "scout", tier: 1, row: 4, col: 6, maxActive: 1, weapons: [] },
     ],
-    wave: { index: 1, name: "formation", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [] }] },
+    wave: { index: 1, name: "formation", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [{ enemyId: "grunt", count: 1 }] }] },
   });
-  stepFor(engine, 6.25);
+  (engine as unknown as { spawners: Array<{ cooldown: number }> }).spawners.forEach((spawner) => { spawner.cooldown = 0; });
+  stepFor(engine, 0.02);
   const snapshot = engine.getSnapshot();
   const backTop = snapshot.allies.find(({ definitionId }) => definitionId === "shieldbearer")!;
   const frontBottom = snapshot.allies.find(({ definitionId }) => definitionId === "scout")!;
@@ -283,7 +346,7 @@ test("seven columns and five rows map to distinct allied deployment positions an
   engine.dispose();
 });
 
-test("depth movement still uses both battlefield axes after delayed first spawn", () => {
+test("depth movement still uses both battlefield axes after the ally's delayed first spawn", () => {
   const engine = new CombatEngine();
   engine.startWave({
     waveIndex: 1,

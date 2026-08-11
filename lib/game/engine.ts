@@ -32,6 +32,7 @@ const UNIT_CAP = MAX_UNITS;
 const PROJECTILE_CAP = MAX_PROJECTILES;
 const FIXED_STEP = 1 / 60;
 const SNAPSHOT_INTERVAL = 0.1;
+export const ENEMY_SPAWN_INTERVAL = 0.15;
 
 type Tier = 1 | 2 | 3;
 type Direction = "up" | "down" | "left" | "right";
@@ -221,6 +222,8 @@ interface InternalMetrics {
 export interface CombatEngineOptions {
   /** Maximum amount of wall-clock time accepted by a single step call. */
   maxFrameDelta?: number;
+  /** Optional deterministic cap override used by simulations and tests. */
+  unitCap?: number;
 }
 
 export type CombatListener = (event: CombatEvent) => void;
@@ -295,6 +298,7 @@ function normalizeStartInput(input: WaveStartInput): WaveStartInputLike {
 export class CombatEngine {
   private readonly listeners = new Set<CombatListener>();
   private readonly maxFrameDelta: number;
+  private readonly unitCap: number;
   private random = new SeededRandom("prototype-001");
   private disposed = false;
   private accumulator = 0;
@@ -313,6 +317,8 @@ export class CombatEngine {
   private enemyOrdinal = 0;
   private waveGroups: SpawnGroupLike[] = [];
   private pendingEnemies: PendingEnemy[] = [];
+  private pendingBosses: PendingEnemy[] = [];
+  private enemySpawnCooldown = 0;
   private spawners: InternalSpawner[] = [];
   private allies: AllyUnit[] = [];
   private enemies: EnemyUnit[] = [];
@@ -322,6 +328,7 @@ export class CombatEngine {
 
   constructor(options: CombatEngineOptions = {}) {
     this.maxFrameDelta = clamp(finite(options.maxFrameDelta ?? 0.25, 0.25), FIXED_STEP, 1);
+    this.unitCap = Math.max(1, Math.round(finite(options.unitCap ?? UNIT_CAP, UNIT_CAP)));
   }
 
   startWave(input: WaveStartInput): void {
@@ -350,6 +357,8 @@ export class CombatEngine {
       }))
       .sort((left, right) => left.at - right.at);
     this.pendingEnemies = [];
+    this.pendingBosses = [];
+    this.enemySpawnCooldown = 0;
     this.allies = [];
     this.enemies = [];
     this.projectiles = [];
@@ -362,8 +371,8 @@ export class CombatEngine {
         return { blueprint, cooldown: cooldownDuration, cooldownDuration };
       });
 
-    this.scheduleEnemyGroups();
-    this.flushPendingEnemies();
+    this.queueWaveEnemies();
+    this.tickEnemySpawns(0);
     this.updatePeaks();
     this.emitSnapshot(true);
   }
@@ -510,6 +519,8 @@ export class CombatEngine {
     this.effects = [];
     this.spawners = [];
     this.pendingEnemies = [];
+    this.pendingBosses = [];
+    this.enemySpawnCooldown = 0;
     this.waveGroups = [];
     this.phase = "idle";
   }
@@ -517,8 +528,7 @@ export class CombatEngine {
   private simulate(dt: number): void {
     this.elapsed += dt;
     this.tickEffects(dt);
-    this.scheduleEnemyGroups();
-    this.flushPendingEnemies();
+    this.tickEnemySpawns(dt);
     this.tickSpawners(dt);
     this.tickProjectiles(dt);
     this.removeDefeatedUnits();
@@ -547,6 +557,7 @@ export class CombatEngine {
     if (
       this.groupCursor >= this.waveGroups.length
       && this.pendingEnemies.length === 0
+      && this.pendingBosses.length === 0
       && this.enemies.length === 0
     ) {
       this.finishClear();
@@ -566,27 +577,37 @@ export class CombatEngine {
     this.effects = this.effects.filter((effect) => effect.life > 0);
   }
 
-  private scheduleEnemyGroups(): void {
-    while (
-      this.groupCursor < this.waveGroups.length
-      && this.waveGroups[this.groupCursor].at <= this.elapsed + Number.EPSILON
-    ) {
+  private queueWaveEnemies(): void {
+    while (this.groupCursor < this.waveGroups.length) {
       const group = this.waveGroups[this.groupCursor];
       for (const entry of group.enemies) {
         const count = Math.max(0, Math.floor(finite(entry.count, 0)));
         for (let ordinal = 0; ordinal < count; ordinal += 1) {
-          this.pendingEnemies.push({ enemyId: entry.enemyId, ordinal: this.enemyOrdinal++ });
+          const pending = { enemyId: entry.enemyId, ordinal: this.enemyOrdinal++ };
+          if (ENEMIES[entry.enemyId]?.isBoss) this.pendingBosses.push(pending);
+          else this.pendingEnemies.push(pending);
         }
       }
       this.groupCursor += 1;
     }
   }
 
-  private flushPendingEnemies(): void {
-    while (this.pendingEnemies.length > 0 && this.unitCount() < UNIT_CAP) {
+  private tickEnemySpawns(dt: number): void {
+    this.enemySpawnCooldown = Math.max(0, this.enemySpawnCooldown - dt);
+    if (this.pendingEnemies.length > 0) {
+      if (this.enemySpawnCooldown > Number.EPSILON || this.unitCount() >= this.unitCap) return;
       const pending = this.pendingEnemies.shift();
-      if (!pending) break;
-      this.spawnEnemy(pending.enemyId, pending.ordinal);
+      if (pending) this.spawnEnemy(pending.enemyId, pending.ordinal);
+      this.enemySpawnCooldown = ENEMY_SPAWN_INTERVAL;
+      return;
+    }
+
+    const livingNormalEnemy = this.enemies.some((enemy) => enemy.hp > 0 && !enemy.isBoss);
+    if (livingNormalEnemy || this.pendingBosses.length === 0 || this.unitCount() >= this.unitCap) return;
+    const boss = this.pendingBosses.shift();
+    if (boss) {
+      this.spawnEnemy(boss.enemyId, boss.ordinal);
+      this.enemySpawnCooldown = ENEMY_SPAWN_INTERVAL;
     }
   }
 
@@ -599,7 +620,7 @@ export class CombatEngine {
       }
       spawner.cooldown -= dt;
       if (spawner.cooldown > 0) continue;
-      if (this.unitCount() >= UNIT_CAP) {
+      if (this.unitCount() >= this.unitCap) {
         spawner.cooldown = 0;
         continue;
       }
