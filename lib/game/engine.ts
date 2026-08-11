@@ -35,7 +35,7 @@ const BASE_X = 29;
 const UNIT_CAP = MAX_UNITS;
 const PROJECTILE_CAP = MAX_PROJECTILES;
 const FIXED_STEP = 1 / 60;
-const SNAPSHOT_INTERVAL = 0.1;
+const SNAPSHOT_INTERVAL = 0.2;
 export const ENEMY_SPAWN_INTERVAL = 0.15;
 
 type Tier = 1 | 2 | 3;
@@ -392,8 +392,14 @@ export class CombatEngine {
   }
 
   step(dtSeconds: number): CombatSnapshot {
+    this.advance(dtSeconds);
+    return this.getSnapshot();
+  }
+
+  /** Advance the fixed-step simulation without allocating a render snapshot. */
+  advance(dtSeconds: number): void {
     if (this.disposed || this.phase !== "running" || this.pauseReasons.size > 0) {
-      return this.getSnapshot();
+      return;
     }
 
     const frameDelta = clamp(finite(dtSeconds, 0), 0, this.maxFrameDelta);
@@ -406,7 +412,6 @@ export class CombatEngine {
     }
 
     this.emitSnapshot(false);
-    return this.getSnapshot();
   }
 
   pause(reason: string): void {

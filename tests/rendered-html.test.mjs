@@ -175,6 +175,22 @@ test("wave-one outposts use shared bag and battlefield coordinates", async () =>
   assert.match(client, /getBattleCellPosition/);
 });
 
+test("combat rendering is throttled and static phases repaint only when dirty", async () => {
+  const [client, engine] = await Promise.all([
+    readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/engine.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(client, /COMBAT_RENDER_INTERVAL_MS = 1000 \/ 30/);
+  assert.match(client, /MAX_CANVAS_DPR = 1\.5/);
+  assert.match(client, /renderDirtyRef = useRef\(true\)/);
+  assert.match(client, /engine\.advance\(realSeconds \* settingsRef\.current\.battleSpeed\)/);
+  assert.match(client, /now - lastPaint >= COMBAT_RENDER_INTERVAL_MS/);
+  assert.match(client, /else if \(renderDirtyRef\.current\)/);
+  assert.doesNotMatch(client, /getScaledFrameSteps/);
+  assert.match(engine, /advance\(dtSeconds: number\): void/);
+  assert.match(engine, /const SNAPSHOT_INTERVAL = 0\.2/);
+});
+
 test("keeps Sites metadata and the production build entrypoints", async () => {
   const [page, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

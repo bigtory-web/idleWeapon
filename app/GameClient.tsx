@@ -33,7 +33,7 @@ import {
   positionsEqual,
 } from "@/lib/game/inventory";
 import { renderBattle } from "@/lib/game/render";
-import { getScaledFrameSteps, normalizeBattleSpeed } from "@/lib/game/speed";
+import { normalizeBattleSpeed } from "@/lib/game/speed";
 import {
   canPurchaseShopOffer,
   generateShopOffers,
@@ -98,6 +98,8 @@ interface ToastMessage {
 const SETTINGS_KEY = "worker-grower:settings:v1";
 const REPORTS_KEY = "worker-grower:reports:v1";
 const MAX_REPORTS = 10;
+const COMBAT_RENDER_INTERVAL_MS = 1000 / 30;
+const MAX_CANVAS_DPR = 1.5;
 
 function cloneStartingInventory(): GridItem[] {
   return STARTING_INVENTORY.map((item) => ({
@@ -221,6 +223,7 @@ export default function GameClient() {
   const [unlockedColumns, setUnlockedColumns] = useState<number>(STARTING_UNLOCKED_COLUMNS);
 
   const phaseRef = useRef(phase);
+  const renderDirtyRef = useRef(true);
   const waveCursorRef = useRef(waveCursor);
   const gridRef = useRef(gridItems);
   const seedRef = useRef(seed);
@@ -233,17 +236,17 @@ export default function GameClient() {
   const settingsRef = useRef(settings);
   const unlockedColumnsRef = useRef<number>(STARTING_UNLOCKED_COLUMNS);
 
-  useEffect(() => { phaseRef.current = phase; }, [phase]);
-  useEffect(() => { waveCursorRef.current = waveCursor; }, [waveCursor]);
-  useEffect(() => { gridRef.current = gridItems; }, [gridItems]);
+  useEffect(() => { phaseRef.current = phase; renderDirtyRef.current = true; }, [phase]);
+  useEffect(() => { waveCursorRef.current = waveCursor; renderDirtyRef.current = true; }, [waveCursor]);
+  useEffect(() => { gridRef.current = gridItems; renderDirtyRef.current = true; }, [gridItems]);
   useEffect(() => { seedRef.current = seed; }, [seed]);
-  useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
+  useEffect(() => { snapshotRef.current = snapshot; renderDirtyRef.current = true; }, [snapshot]);
   useEffect(() => { goldRef.current = gold; }, [gold]);
   useEffect(() => { goldEarnedRef.current = goldEarned; }, [goldEarned]);
   useEffect(() => { goldSpentRef.current = goldSpent; }, [goldSpent]);
   useEffect(() => { purchasesRef.current = purchases; }, [purchases]);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
-  useEffect(() => { unlockedColumnsRef.current = unlockedColumns; }, [unlockedColumns]);
+  useEffect(() => { settingsRef.current = settings; renderDirtyRef.current = true; }, [settings]);
+  useEffect(() => { unlockedColumnsRef.current = unlockedColumns; renderDirtyRef.current = true; }, [unlockedColumns]);
 
   const changePhase = useCallback((next: UiPhase) => {
     phaseRef.current = next;
@@ -408,21 +411,19 @@ export default function GameClient() {
     if (!canvas) return;
     let animationFrame = 0;
     let previous = performance.now();
-    const frame = (now: number) => {
+    let lastPaint = Number.NEGATIVE_INFINITY;
+    const resizeObserver = new ResizeObserver(() => { renderDirtyRef.current = true; });
+    resizeObserver.observe(canvas);
+
+    const paint = () => {
       const rect = canvas.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_CANVAS_DPR);
       const width = Math.max(1, Math.round(rect.width * dpr));
       const height = Math.max(1, Math.round(rect.height * dpr));
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
         canvas.height = height;
       }
-      if (phaseRef.current === "combat") {
-        for (const step of getScaledFrameSteps((now - previous) / 1000, settingsRef.current.battleSpeed)) {
-          snapshotRef.current = engine.step(step);
-        }
-      }
-      previous = now;
       const context = canvas.getContext("2d");
       if (context) {
         const liveSnapshot = snapshotRef.current;
@@ -451,12 +452,34 @@ export default function GameClient() {
           height: 360,
           reducedMotion: settingsRef.current.reducedMotion,
           unlockedColumns: unlockedColumnsRef.current,
+          showHealthBars: renderSnapshot.allies.length + renderSnapshot.enemies.length <= 55,
         });
       }
+      renderDirtyRef.current = false;
+    };
+
+    const frame = (now: number) => {
+      const combat = phaseRef.current === "combat";
+      if (combat) {
+        const realSeconds = Math.max(0, Math.min((now - previous) / 1000, 0.1));
+        engine.advance(realSeconds * settingsRef.current.battleSpeed);
+        if (now - lastPaint >= COMBAT_RENDER_INTERVAL_MS) {
+          snapshotRef.current = engine.getSnapshot();
+          paint();
+          lastPaint = now;
+        }
+      } else if (renderDirtyRef.current) {
+        paint();
+        lastPaint = now;
+      }
+      previous = now;
       animationFrame = requestAnimationFrame(frame);
     };
     animationFrame = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(animationFrame);
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+    };
   }, []);
 
   const currentWave = WAVE_DEFINITIONS[waveCursor] ?? WAVE_DEFINITIONS.at(-1);

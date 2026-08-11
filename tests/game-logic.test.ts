@@ -439,6 +439,31 @@ test("battle speed normalization and substeps scale elapsed time without oversiz
   assert.equal(doubleSteps.every((step) => step <= 0.05), true);
 });
 
+test("advance avoids per-call render snapshots while step keeps the compatibility snapshot", () => {
+  const engine = new CombatEngine();
+  engine.startWave({
+    waveIndex: 2,
+    seed: "snapshot-allocation",
+    baseHp: 1_000_000,
+    spawners: [],
+    wave: { index: 2, name: "snapshot", timeLimit: 60, clearGold: 0, groups: [{ at: 0, enemies: [{ enemyId: "grunt", count: 1 }] }] },
+  });
+  const tracked = engine as CombatEngine & { getSnapshot: () => ReturnType<CombatEngine["getSnapshot"]> };
+  const originalGetSnapshot = tracked.getSnapshot.bind(engine);
+  let snapshotCalls = 0;
+  tracked.getSnapshot = () => {
+    snapshotCalls += 1;
+    return originalGetSnapshot();
+  };
+  engine.advance(0.1);
+  assert.equal(snapshotCalls, 0);
+  engine.advance(0.12);
+  assert.equal(snapshotCalls, 1);
+  engine.step(0.01);
+  assert.equal(snapshotCalls, 2);
+  engine.dispose();
+});
+
 test("deployment projection preserves all five rows and spawn arrival has start, middle, and end states", () => {
   const first = getAllyDeployPosition(0, 0);
   const last = getAllyDeployPosition(4, 6);
