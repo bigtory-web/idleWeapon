@@ -33,6 +33,7 @@ export function purchaseShopOffer(
   gridItems: readonly GridItem[],
   gold: number,
   offer: ShopOffer,
+  unlockedColumns?: number,
 ): ShopPurchaseResult {
   if (offer.purchased) {
     return { success: false, gridItems: cloneGrid(gridItems), gold, reason: "already-purchased", merges: 0 };
@@ -57,7 +58,7 @@ export function purchaseShopOffer(
     };
   }
 
-  const placed = placeRewardInFirstEmptyCell(merged.gridItems, merged.pendingRewards[0] as PendingReward);
+  const placed = placeRewardInFirstEmptyCell(merged.gridItems, merged.pendingRewards[0] as PendingReward, unlockedColumns);
   if (!placed.success) {
     return { success: false, gridItems: cloneGrid(gridItems), gold, reason: "grid-full", merges: 0 };
   }
@@ -68,8 +69,9 @@ export function canPurchaseShopOffer(
   gridItems: readonly GridItem[],
   gold: number,
   offer: ShopOffer,
+  unlockedColumns?: number,
 ): boolean {
-  return purchaseShopOffer(gridItems, gold, offer).success;
+  return purchaseShopOffer(gridItems, gold, offer, unlockedColumns).success;
 }
 
 function cloneGrid(items: readonly GridItem[]): GridItem[] {

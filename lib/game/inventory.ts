@@ -1,8 +1,8 @@
 import { CHARACTERS, ITEM_DEFINITIONS, WEAPONS, isCharacterId, isWeaponId } from "./data";
 import {
-  GRID_COLUMNS,
+  INVENTORY_COLUMNS,
+  PLAYER_DEPLOY_COLUMNS,
   GRID_ROWS,
-  type ConnectionSocket,
   type Direction,
   type EquippedWeaponSnapshot,
   type FootprintCell,
@@ -31,7 +31,7 @@ export const ADJACENT_DIRECTIONS: ReadonlyArray<{
 const ROTATIONS: Rotation[] = [0, 90, 180, 270];
 
 export interface AdjacentWeaponConnection { item: GridItem; direction: Direction; characterCell: FootprintCell }
-export interface InventoryState { gridItems: GridItem[]; pendingRewards: PendingReward[] }
+export interface InventoryState { gridItems: GridItem[]; pendingRewards: PendingReward[]; unlockedColumns?: number }
 export type InventoryFailureReason = "item-not-found" | "target-not-found" | "invalid-position" | "same-item" | "not-characters" | "different-character" | "different-tier" | "max-tier";
 export interface InventoryActionResult extends InventoryState {
   success: boolean;
@@ -64,7 +64,12 @@ interface LocatedInventoryItem {
 export function isValidGridPosition(position: GridPosition): boolean {
   return Number.isInteger(position.row) && Number.isInteger(position.col)
     && position.row >= 0 && position.row < GRID_ROWS
-    && position.col >= 0 && position.col < GRID_COLUMNS;
+    && position.col >= 0 && position.col < INVENTORY_COLUMNS;
+}
+
+export function isUsableGridPosition(position: GridPosition, unlockedColumns = PLAYER_DEPLOY_COLUMNS): boolean {
+  const usableColumns = Math.max(0, Math.min(PLAYER_DEPLOY_COLUMNS, Math.trunc(unlockedColumns)));
+  return isValidGridPosition(position) && position.col < usableColumns;
 }
 
 export function positionsEqual(left: GridPosition | null, right: GridPosition | null): boolean {
@@ -82,11 +87,6 @@ export function normalizeRotation(value: number | undefined): Rotation {
   return ROTATIONS.includes(normalized as Rotation) ? normalized as Rotation : 0;
 }
 
-function rotateDirection(direction: Direction, steps: number): Direction {
-  const directions: Direction[] = ["up", "right", "down", "left"];
-  return directions[(directions.indexOf(direction) + steps) % 4] as Direction;
-}
-
 function rotatePoint(cell: FootprintCell, steps: number): FootprintCell {
   let next = { ...cell };
   for (let index = 0; index < steps; index += 1) next = { row: next.col, col: -next.row };
@@ -95,7 +95,6 @@ function rotatePoint(cell: FootprintCell, steps: number): FootprintCell {
 
 export function getRotatedItemGeometry(definitionId: ItemId, rotation: Rotation = 0): {
   cells: FootprintCell[];
-  sockets: ConnectionSocket[];
   rows: number;
   cols: number;
 } {
@@ -106,16 +105,8 @@ export function getRotatedItemGeometry(definitionId: ItemId, rotation: Rotation 
   const minRow = Math.min(...rawCells.map(({ row }) => row));
   const minCol = Math.min(...rawCells.map(({ col }) => col));
   const cells = rawCells.map(({ row, col }) => ({ row: row - minRow, col: col - minCol }));
-  const sockets = (isCharacter ? [] : definition.sockets).map((socket) => {
-    const cell = rotatePoint(socket.cell, steps);
-    return {
-      cell: { row: cell.row - minRow, col: cell.col - minCol },
-      direction: rotateDirection(socket.direction, steps),
-    };
-  });
   return {
     cells,
-    sockets,
     rows: Math.max(...cells.map(({ row }) => row)) + 1,
     cols: Math.max(...cells.map(({ col }) => col)) + 1,
   };
@@ -139,34 +130,35 @@ export function canPlaceItem(
   position: GridPosition,
   rotation = normalizeRotation(item.rotation),
   ignoredIds: readonly string[] = [item.id],
+  unlockedColumns = PLAYER_DEPLOY_COLUMNS,
 ): boolean {
   const cells = getOccupiedCells(item, position, rotation);
   return cells.length > 0
-    && cells.every(isValidGridPosition)
+    && cells.every((cell) => isUsableGridPosition(cell, unlockedColumns))
     && cells.every((cell) => {
       const occupant = getGridItemAt(items, cell);
       return !occupant || ignoredIds.includes(occupant.id);
     });
 }
 
-export function findFirstPlacement(items: readonly GridItem[], definitionId: ItemId, preferredRotation?: Rotation): { position: GridPosition; rotation: Rotation } | null {
+export function findFirstPlacement(items: readonly GridItem[], definitionId: ItemId, preferredRotation?: Rotation, unlockedColumns = PLAYER_DEPLOY_COLUMNS): { position: GridPosition; rotation: Rotation } | null {
   const rotations = [isCharacterId(definitionId) || preferredRotation === undefined
     ? 0 as Rotation
     : normalizeRotation(preferredRotation)];
   const probe: GridItem = { id: "__placement-probe__", definitionId, tier: 1, position: null };
   for (let row = 0; row < GRID_ROWS; row += 1) {
-    for (let col = 0; col < GRID_COLUMNS; col += 1) {
+    for (let col = 0; col < unlockedColumns; col += 1) {
       for (const rotation of rotations) {
         const position = { row, col };
-        if (canPlaceItem(items, probe, position, rotation, [])) return { position, rotation };
+        if (canPlaceItem(items, probe, position, rotation, [], unlockedColumns)) return { position, rotation };
       }
     }
   }
   return null;
 }
 
-export function placeRewardInFirstEmptyCell(gridItems: readonly GridItem[], reward: PendingReward): PlaceRewardResult {
-  const placement = findFirstPlacement(gridItems, reward.definitionId, reward.rotation);
+export function placeRewardInFirstEmptyCell(gridItems: readonly GridItem[], reward: PendingReward, unlockedColumns = PLAYER_DEPLOY_COLUMNS): PlaceRewardResult {
+  const placement = findFirstPlacement(gridItems, reward.definitionId, reward.rotation, unlockedColumns);
   if (!placement) return { gridItems: cloneGridItems(gridItems), success: false, reason: "grid-full" };
   return {
     gridItems: [...cloneGridItems(gridItems), { ...reward, ...placement }],
@@ -175,36 +167,28 @@ export function placeRewardInFirstEmptyCell(gridItems: readonly GridItem[], rewa
   };
 }
 
-function directionOffset(direction: Direction): { row: number; col: number } {
-  const entry = ADJACENT_DIRECTIONS.find((candidate) => candidate.direction === direction)!;
-  return { row: entry.rowOffset, col: entry.colOffset };
-}
-
-export function getWorldSockets(weapon: GridItem): Array<{ position: GridPosition; direction: Direction }> {
-  if (!weapon.position || !isWeaponId(weapon.definitionId)) return [];
-  return getRotatedItemGeometry(weapon.definitionId, normalizeRotation(weapon.rotation)).sockets.map((socket) => ({
-    position: { row: weapon.position!.row + socket.cell.row, col: weapon.position!.col + socket.cell.col },
-    direction: socket.direction,
-  }));
-}
-
 export function getAdjacentWeaponConnections(character: GridItem, allItems: readonly GridItem[]): AdjacentWeaponConnection[] {
   if (!character.position || !isCharacterId(character.definitionId)) return [];
   const matches: AdjacentWeaponConnection[] = [];
   for (const weapon of allItems) {
     if (!weapon.position || !isWeaponId(weapon.definitionId)) continue;
-    for (const socket of getWorldSockets(weapon)) {
-      const offset = directionOffset(socket.direction);
-      const target = { row: socket.position.row + offset.row, col: socket.position.col + offset.col };
-      const relativeCell = getOccupiedCells(character).find((cell) => positionsEqual(target, cell));
-      if (!relativeCell) continue;
-      matches.push({
-        item: weapon,
-        direction: rotateDirection(socket.direction, 2),
-        characterCell: { row: relativeCell.row - character.position.row, col: relativeCell.col - character.position.col },
-      });
-      break;
+    const characterCells = getOccupiedCells(character);
+    const weaponCells = getOccupiedCells(weapon);
+    let connection: AdjacentWeaponConnection | null = null;
+    for (const characterCell of characterCells) {
+      for (const candidate of ADJACENT_DIRECTIONS) {
+        const touching = weaponCells.some((cell) => cell.row === characterCell.row + candidate.rowOffset && cell.col === characterCell.col + candidate.colOffset);
+        if (!touching) continue;
+        connection = {
+          item: weapon,
+          direction: candidate.direction,
+          characterCell: { row: characterCell.row - character.position.row, col: characterCell.col - character.position.col },
+        };
+        break;
+      }
+      if (connection) break;
     }
+    if (connection) matches.push(connection);
   }
   return matches.sort((left, right) => compareGridPositions(left.item.position, right.item.position));
 }
@@ -252,21 +236,21 @@ export function createSpawnLoadoutSnapshot(blueprint: SpawnerBlueprint): SpawnLo
   return { characterId: blueprint.characterId, characterTier: blueprint.tier, weapons: blueprint.weapons.map((weapon) => ({ ...weapon })) };
 }
 
-export function moveGridItem(items: readonly GridItem[], itemId: string, targetPosition: GridPosition): GridMoveResult {
+export function moveGridItem(items: readonly GridItem[], itemId: string, targetPosition: GridPosition, unlockedColumns = PLAYER_DEPLOY_COLUMNS): GridMoveResult {
   const moving = items.find((item) => item.id === itemId);
   if (!moving) return { items: cloneGridItems(items), moved: false, reason: "item-not-found" };
-  if (!isValidGridPosition(targetPosition)) return { items: cloneGridItems(items), moved: false, reason: "invalid-position" };
+  if (!isUsableGridPosition(targetPosition, unlockedColumns)) return { items: cloneGridItems(items), moved: false, reason: "invalid-position" };
   const targetIds = new Set(getOccupiedCells(moving, targetPosition).map((cell) => getGridItemAt(items.filter((item) => item.id !== itemId), cell)?.id).filter(Boolean) as string[]);
   if (targetIds.size === 0) {
-    if (!canPlaceItem(items, moving, targetPosition)) return { items: cloneGridItems(items), moved: false, reason: "invalid-position" };
+    if (!canPlaceItem(items, moving, targetPosition, normalizeRotation(moving.rotation), [moving.id], unlockedColumns)) return { items: cloneGridItems(items), moved: false, reason: "invalid-position" };
     return { items: items.map((item) => item.id === itemId ? { ...cloneGridItem(item), position: { ...targetPosition } } : cloneGridItem(item)), moved: true };
   }
   if (targetIds.size !== 1 || !moving.position) return { items: cloneGridItems(items), moved: false, reason: "invalid-position" };
   const targetId = [...targetIds][0] as string;
   const target = items.find((item) => item.id === targetId)!;
   const ignored = [moving.id, target.id];
-  if (!canPlaceItem(items, moving, targetPosition, normalizeRotation(moving.rotation), ignored)
-    || !canPlaceItem(items, target, moving.position, normalizeRotation(target.rotation), ignored)) {
+  if (!canPlaceItem(items, moving, targetPosition, normalizeRotation(moving.rotation), ignored, unlockedColumns)
+    || !canPlaceItem(items, target, moving.position, normalizeRotation(target.rotation), ignored, unlockedColumns)) {
     return { items: cloneGridItems(items), moved: false, reason: "invalid-position" };
   }
   return {
@@ -294,7 +278,7 @@ export function movePendingRewardToGrid(state: InventoryState, rewardId: string,
   if (rewardIndex < 0) return failedState(state, "item-not-found");
   const reward = state.pendingRewards[rewardIndex]!;
   const placed: GridItem = { ...reward, position: targetPosition, rotation: normalizeRotation(reward.rotation) };
-  if (!canPlaceItem(state.gridItems, placed, targetPosition, normalizeRotation(placed.rotation), [])) return failedState(state, "invalid-position");
+  if (!canPlaceItem(state.gridItems, placed, targetPosition, normalizeRotation(placed.rotation), [], state.unlockedColumns)) return failedState(state, "invalid-position");
   return {
     gridItems: [...cloneGridItems(state.gridItems), placed],
     pendingRewards: state.pendingRewards.filter((entry) => entry.id !== rewardId).map((entry) => ({ ...entry })),
@@ -384,7 +368,7 @@ export function dropItemOnGrid(state: InventoryState, sourceId: string, targetPo
   if (target && source.id !== target.id && isCharacterId(source.definitionId)
     && source.definitionId === target.definitionId && source.tier === target.tier) return mergeCharacters(state, source.id, target.id);
   if (source.storage === "queue") return movePendingRewardToGrid(state, source.id, targetPosition);
-  const result = moveGridItem(state.gridItems, source.id, targetPosition);
+  const result = moveGridItem(state.gridItems, source.id, targetPosition, state.unlockedColumns);
   return {
     gridItems: result.items,
     pendingRewards: state.pendingRewards.map((reward) => ({ ...reward })),
@@ -396,7 +380,7 @@ export function dropItemOnGrid(state: InventoryState, sourceId: string, targetPo
 }
 
 export function cloneInventoryState(state: InventoryState): InventoryState {
-  return { gridItems: cloneGridItems(state.gridItems), pendingRewards: state.pendingRewards.map((reward) => ({ ...reward })) };
+  return { gridItems: cloneGridItems(state.gridItems), pendingRewards: state.pendingRewards.map((reward) => ({ ...reward })), unlockedColumns: state.unlockedColumns };
 }
 
 function cloneGridItem(item: GridItem): GridItem {

@@ -4,9 +4,9 @@ import type {
   CombatUnitView,
   ProjectileView,
 } from "./types";
-import { GRID_COLUMNS, GRID_ROWS } from "./types";
+import { BATTLEFIELD_COLUMNS, GRID_ROWS, PLAYER_DEPLOY_COLUMNS } from "./types";
 import { CHARACTERS } from "./data";
-import { ALLY_DEPLOY_Y_MAX, ALLY_DEPLOY_Y_MIN, getAllyDeployPosition } from "./battle-layout";
+import { ALLY_DEPLOY_Y_MAX, ALLY_DEPLOY_Y_MIN, getAllyDeployPosition, getBattleCellPosition } from "./battle-layout";
 
 export const BATTLEFIELD_WIDTH = 390;
 export const BATTLEFIELD_HEIGHT = 360;
@@ -40,6 +40,7 @@ interface UnitViewLike {
   maxHp: number;
   facing: -1 | 1;
   isBoss?: boolean;
+  isStructure?: boolean;
   flash: number;
   spawnGlow: number;
   visualScale?: number;
@@ -423,21 +424,24 @@ function drawTree(context: CanvasRenderingContext2D, x: number, y: number, scale
 function drawDeploymentGrid(context: CanvasRenderingContext2D): void {
   context.save();
   for (let row = 0; row < GRID_ROWS; row += 1) {
-    for (let col = 0; col < GRID_COLUMNS; col += 1) {
-      const deploy = getAllyDeployPosition(row, col);
+    for (let col = 0; col < BATTLEFIELD_COLUMNS; col += 1) {
+      const deploy = getBattleCellPosition(row, col);
       const center = projectBattlePoint(deploy.x, deploy.y);
       const horizontalNeighbor = projectBattlePoint(
-        getAllyDeployPosition(row, col < GRID_COLUMNS - 1 ? col + 1 : col - 1).x,
-        getAllyDeployPosition(row, col < GRID_COLUMNS - 1 ? col + 1 : col - 1).y,
+        getBattleCellPosition(row, col < BATTLEFIELD_COLUMNS - 1 ? col + 1 : col - 1).x,
+        getBattleCellPosition(row, col < BATTLEFIELD_COLUMNS - 1 ? col + 1 : col - 1).y,
       );
       const verticalNeighbor = projectBattlePoint(
-        getAllyDeployPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).x,
-        getAllyDeployPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).y,
+        getBattleCellPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).x,
+        getBattleCellPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).y,
       );
-      const tileWidth = Math.abs(horizontalNeighbor.x - center.x) * 0.82;
-      const tileHeight = Math.abs(verticalNeighbor.y - center.y) * 0.78;
-      context.fillStyle = (row + col) % 2 === 0 ? "rgba(99,225,213,.055)" : "rgba(231,215,255,.035)";
-      context.strokeStyle = "rgba(116,226,216,.12)";
+      const tileWidth = Math.abs(horizontalNeighbor.x - center.x) * 0.94;
+      const tileHeight = Math.abs(verticalNeighbor.y - center.y) * 0.9;
+      const enemyZone = col >= PLAYER_DEPLOY_COLUMNS;
+      context.fillStyle = enemyZone
+        ? ((row + col) % 2 === 0 ? "rgba(255,107,125,.09)" : "rgba(105,43,78,.12)")
+        : ((row + col) % 2 === 0 ? "rgba(99,225,213,.09)" : "rgba(231,215,255,.06)");
+      context.strokeStyle = enemyZone ? "rgba(255,107,125,.2)" : "rgba(116,226,216,.2)";
       context.lineWidth = 0.75;
       roundedRectPath(context, center.x - tileWidth / 2, center.y - tileHeight / 2, tileWidth, tileHeight, 2);
       context.fill();
@@ -577,7 +581,7 @@ function drawUnit(
     }
   }
 
-  if (showHealthBars && (unit.hp < unit.maxHp || unit.isBoss)) drawUnitHealth(context, unit);
+  if (showHealthBars && (unit.hp < unit.maxHp || unit.isBoss || unit.isStructure)) drawUnitHealth(context, unit);
 }
 
 function drawAbsorbingWeapon(
@@ -687,6 +691,27 @@ function drawAllyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): vo
 }
 
 function drawEnemyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
+  if (unit.isStructure) {
+    context.fillStyle = "#3a2448";
+    context.strokeStyle = COLORS.red;
+    context.lineWidth = 2.5;
+    roundedRectPath(context, -14, -19, 28, 21, 4);
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#6a456b";
+    context.fillRect(-10, -15, 6, 9);
+    context.fillRect(4, -15, 6, 9);
+    line(context, 0, -19, 0, -37, "#2a1636", 3);
+    context.fillStyle = COLORS.red;
+    context.beginPath();
+    context.moveTo(1, -36);
+    context.lineTo(15, -31);
+    context.lineTo(1, -25);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    return;
+  }
   const id = unit.definitionId.toLowerCase();
   const armored = /armor|armoured|갑옷/.test(id);
   const runner = /runner|rush|질주/.test(id);

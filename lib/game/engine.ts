@@ -9,7 +9,7 @@ import {
   WEAPONS as RAW_WEAPONS,
   WEAPON_DAMAGE_MULTIPLIER,
 } from "./data";
-import { getAllyDeployPosition } from "./battle-layout";
+import { getAllyDeployPosition, getBattleCellPosition } from "./battle-layout";
 import type {
   CombatEvent,
   CombatSnapshot,
@@ -26,7 +26,7 @@ import type {
  */
 
 const LOGICAL_WIDTH = 390;
-const ENEMY_SPAWN_X = 354;
+const ENEMY_SPAWN_X = getBattleCellPosition(0, 7).x;
 const BASE_X = 29;
 const UNIT_CAP = MAX_UNITS;
 const PROJECTILE_CAP = MAX_PROJECTILES;
@@ -80,6 +80,7 @@ interface EnemyDefinitionLike {
   range: number;
   armor?: number;
   isBoss?: boolean;
+  isStructure?: boolean;
   targetPriority?: "nearest" | "lowest-max-hp";
   approachMoveMultiplier?: number;
   baseDamageMultiplier?: number;
@@ -165,6 +166,7 @@ interface EnemyUnit extends BaseUnit {
   range: number;
   armor: number;
   isBoss: boolean;
+  isStructure: boolean;
   targetPriority: "nearest" | "lowest-max-hp";
   approachMoveMultiplier: number;
   baseDamageMultiplier: number;
@@ -319,6 +321,8 @@ export class CombatEngine {
   private pendingEnemies: PendingEnemy[] = [];
   private pendingBosses: PendingEnemy[] = [];
   private enemySpawnCooldown = 0;
+  private objectiveUnlockColumn: 3 | 4 | null = null;
+  private objectiveUnlockEmitted = false;
   private spawners: InternalSpawner[] = [];
   private allies: AllyUnit[] = [];
   private enemies: EnemyUnit[] = [];
@@ -359,19 +363,23 @@ export class CombatEngine {
     this.pendingEnemies = [];
     this.pendingBosses = [];
     this.enemySpawnCooldown = 0;
+    this.objectiveUnlockColumn = normalized.waveIndex === 2 ? 3 : normalized.waveIndex === 4 ? 4 : null;
+    this.objectiveUnlockEmitted = false;
     this.allies = [];
     this.enemies = [];
     this.projectiles = [];
     this.effects = [];
     this.metrics = this.emptyMetrics();
     this.spawners = normalized.spawners
-      .filter((blueprint) => Boolean(CHARACTERS[blueprint.characterId]))
+      .filter((blueprint) => Boolean(CHARACTERS[blueprint.characterId])
+        && blueprint.row >= 0 && blueprint.row < 5 && blueprint.col >= 0 && blueprint.col < 5)
       .map((blueprint) => {
         const cooldownDuration = this.getSpawnerCooldown(blueprint);
         return { blueprint, cooldown: cooldownDuration, cooldownDuration };
       });
 
     this.queueWaveEnemies();
+    this.spawnWaveOutposts();
     this.tickEnemySpawns(0);
     this.updatePeaks();
     this.emitSnapshot(true);
@@ -487,7 +495,8 @@ export class CombatEngine {
         hp: Math.max(0, unit.hp),
         maxHp: unit.maxHp,
         facing: unit.facing,
-        isBoss: unit.isBoss,
+          isBoss: unit.isBoss,
+          isStructure: unit.isStructure,
         flash: unit.flash,
         spawnGlow: unit.spawnGlow,
       })),
@@ -909,11 +918,47 @@ export class CombatEngine {
       range: definition.range,
       armor: clamp(definition.armor ?? 0, 0, 0.95),
       isBoss: Boolean(definition.isBoss),
+      isStructure: Boolean(definition.isStructure),
       targetPriority: definition.targetPriority ?? "nearest",
       approachMoveMultiplier: Math.max(1, definition.approachMoveMultiplier ?? 1),
       baseDamageMultiplier: Math.max(1, definition.baseDamageMultiplier ?? 1),
     });
     this.addEffect("spawn", ENEMY_SPAWN_X, y, 0.35);
+  }
+
+  private spawnWaveOutposts(): void {
+    if (this.objectiveUnlockColumn === null) return;
+    const battleColumn = this.waveIndex === 2 ? 5 : 6;
+    const maxHp = 90 + this.waveIndex * 30;
+    for (const row of [1, 3]) {
+      const position = getBattleCellPosition(row, battleColumn);
+      this.enemies.push({
+        id: this.nextId("outpost"),
+        side: "enemy",
+        definitionId: "outpost",
+        name: "적 기지",
+        tier: 1,
+        x: position.x,
+        y: position.y,
+        hp: maxHp,
+        maxHp,
+        moveSpeed: 0,
+        facing: -1,
+        flash: 0,
+        spawnGlow: 0.3,
+        damage: 0,
+        attackCooldown: 99,
+        cooldownDuration: 99,
+        range: 0,
+        armor: 0,
+        isBoss: false,
+        isStructure: true,
+        targetPriority: "nearest",
+        approachMoveMultiplier: 1,
+        baseDamageMultiplier: 1,
+      });
+      this.addEffect("spawn", position.x, position.y, 0.45);
+    }
   }
 
   private damageUnit(unit: BaseUnit, rawDamage: number, sourceDefinitionId: string, armorPierce = 0): void {
@@ -943,6 +988,11 @@ export class CombatEngine {
       for (const enemy of defeated) {
         this.metrics.enemiesDefeated[enemy.definitionId] = (this.metrics.enemiesDefeated[enemy.definitionId] ?? 0) + 1;
         this.addEffect("smash", enemy.x, enemy.y, enemy.isBoss ? 0.7 : 0.36);
+      }
+      if (!this.objectiveUnlockEmitted && this.objectiveUnlockColumn !== null
+        && !this.enemies.some((enemy) => enemy.isStructure && enemy.hp > 0)) {
+        this.objectiveUnlockEmitted = true;
+        this.emit({ type: "board-column-unlocked", waveIndex: this.waveIndex, column: this.objectiveUnlockColumn });
       }
     }
     if (this.allies.some((ally) => ally.hp <= 0)) {
@@ -1040,7 +1090,7 @@ export class CombatEngine {
   }
 
   private enemyLane(ordinal: number): number {
-    const lanes = [230, 240, 250, 260, 270, 280, 290];
+    const lanes = [230, 250, 270, 290, 310];
     return lanes[ordinal % lanes.length] + this.random.between(-3, 3);
   }
 

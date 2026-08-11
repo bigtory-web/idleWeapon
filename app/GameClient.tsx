@@ -23,12 +23,10 @@ import {
   deriveSpawnerBlueprints,
   dropItemOnGrid,
   getActiveWeaponConnections,
-  getAdjacentWeaponConnections,
   getCharactersSharingWeapon,
   getGridItemAt,
   getOccupiedCells,
   getRotatedItemGeometry,
-  getWorldSockets,
   normalizeRotation,
   positionsEqual,
 } from "@/lib/game/inventory";
@@ -40,12 +38,13 @@ import {
   purchaseShopOffer,
 } from "@/lib/game/shop";
 import {
-  GRID_COLUMNS,
+  INVENTORY_COLUMNS,
+  PLAYER_DEPLOY_COLUMNS,
+  STARTING_UNLOCKED_COLUMNS,
   GRID_ROWS,
   type BattleSpeed,
   type CombatMetrics,
   type CombatSnapshot,
-  type Direction,
   type GamePhase,
   type GridItem,
   type GridPosition,
@@ -84,6 +83,7 @@ interface HoverHelp {
   title: string;
   description: string;
   detail?: string;
+  sharingCount?: number;
 }
 
 interface ToastMessage {
@@ -194,6 +194,7 @@ export default function GameClient() {
   const [settings, setSettings] = useState<Settings>({ muted: false, reducedMotion: false, battleSpeed: 1 });
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [report, setReport] = useState<RunReportV2 | null>(null);
+  const [unlockedColumns, setUnlockedColumns] = useState<number>(STARTING_UNLOCKED_COLUMNS);
 
   const phaseRef = useRef(phase);
   const gridRef = useRef(gridItems);
@@ -205,6 +206,7 @@ export default function GameClient() {
   const purchasesRef = useRef(purchases);
   const totalsRef = useRef<CombatMetrics>(emptyMetrics());
   const settingsRef = useRef(settings);
+  const unlockedColumnsRef = useRef<number>(STARTING_UNLOCKED_COLUMNS);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { gridRef.current = gridItems; }, [gridItems]);
@@ -215,6 +217,7 @@ export default function GameClient() {
   useEffect(() => { goldSpentRef.current = goldSpent; }, [goldSpent]);
   useEffect(() => { purchasesRef.current = purchases; }, [purchases]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { unlockedColumnsRef.current = unlockedColumns; }, [unlockedColumns]);
 
   const changePhase = useCallback((next: UiPhase) => {
     phaseRef.current = next;
@@ -322,6 +325,11 @@ export default function GameClient() {
       if (event.type === "snapshot") {
         snapshotRef.current = event.snapshot;
         setSnapshot(event.snapshot);
+      } else if (event.type === "board-column-unlocked") {
+        const nextColumns = Math.max(unlockedColumnsRef.current, event.column + 1);
+        unlockedColumnsRef.current = nextColumns;
+        setUnlockedColumns(nextColumns);
+        showToast(`${event.column + 1}열이 해금됐어요!`, "success");
       } else if (event.type === "wave-cleared") {
         totalsRef.current = addMetrics(totalsRef.current, event.metrics);
         const snap = engine.getSnapshot();
@@ -425,6 +433,8 @@ export default function GameClient() {
     setHoverHelp(null);
     setManualPaused(false);
     setReport(null);
+    setUnlockedColumns(STARTING_UNLOCKED_COLUMNS);
+    unlockedColumnsRef.current = STARTING_UNLOCKED_COLUMNS;
     totalsRef.current = emptyMetrics();
     const idle = createIdleSnapshot();
     setSnapshot(idle);
@@ -459,7 +469,7 @@ export default function GameClient() {
   const buyOffer = useCallback((offerId: string) => {
     const offer = shopOffers.find((entry) => entry.id === offerId);
     if (!offer) return;
-    const result = purchaseShopOffer(gridRef.current, goldRef.current, offer);
+    const result = purchaseShopOffer(gridRef.current, goldRef.current, offer, unlockedColumnsRef.current);
     if (!result.success) {
       showToast(result.reason === "not-enough-gold" ? "골드가 부족해요." : "가방에 넣을 자리가 없어요.", "warning");
       return;
@@ -501,7 +511,7 @@ export default function GameClient() {
     if (!target.startsWith("grid:")) return;
     const [, rowValue, colValue] = target.split(":");
     const result = dropItemOnGrid(
-      { gridItems: gridRef.current, pendingRewards: [] },
+      { gridItems: gridRef.current, pendingRewards: [], unlockedColumns: unlockedColumnsRef.current },
       itemId,
       { row: Number(rowValue) - grabRow, col: Number(colValue) - grabCol },
     );
@@ -595,7 +605,7 @@ export default function GameClient() {
     const item = gridRef.current.find((entry) => entry.id === itemId);
     if (!item?.position) return;
     const result = dropItemOnGrid(
-      { gridItems: gridRef.current, pendingRewards: [] },
+      { gridItems: gridRef.current, pendingRewards: [], unlockedColumns: unlockedColumnsRef.current },
       itemId,
       { row: item.position.row + delta[0], col: item.position.col + delta[1] },
     );
@@ -607,38 +617,14 @@ export default function GameClient() {
     const definition = ITEM_DEFINITIONS[item.definitionId];
     const isCharacter = definition.kind === "character";
     const geometry = getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation));
-    const adjacentConnections = isCharacter ? getAdjacentWeaponConnections(item, gridItems) : [];
     const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems) : [];
     const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems);
-    const connectionMarks = isCharacter
-      ? adjacentConnections.map(({ direction, item: weapon, characterCell }) => ({
-          direction,
-          row: characterCell.row,
-          col: characterCell.col,
-          key: `${direction}-${weapon.id}`,
-        }))
-      : getWorldSockets(item).flatMap((socket, index) => {
-          const offsets: Record<Direction, [number, number]> = {
-            up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
-          };
-          const [rowOffset, colOffset] = offsets[socket.direction];
-          const neighbor = getGridItemAt(gridItems, { row: socket.position.row + rowOffset, col: socket.position.col + colOffset });
-          if (!neighbor || !isCharacterId(neighbor.definitionId) || !item.position) return [];
-          const physicalConnection = getAdjacentWeaponConnections(neighbor, gridItems).some(({ item: weapon }) => weapon.id === item.id);
-          if (!physicalConnection) return [];
-          return [{
-            direction: socket.direction,
-            row: socket.position.row - item.position.row,
-            col: socket.position.col - item.position.col,
-            key: `${socket.direction}-${index}`,
-          }];
-        });
     const spawner = snapshot.spawners.find((entry) => entry.id === item.id);
     const progress = phase === "combat" && isCharacter ? spawner?.progress ?? 0 : 0;
     const squadDetail = spawner ? ` · 분대 ${spawner.activeCount}/${spawner.maxActive}` : "";
     const activeRelationDetail = isCharacter
       ? `장착 무기: ${activeConnections.length ? activeConnections.map(({ item: weapon }) => ITEM_DEFINITIONS[weapon.definitionId].name).join(", ") : "맨손"}`
-      : `공유 캐릭터 ${sharingCharacters.length}명`;
+      : "인접 장착";
     const characterStats = isCharacter
       ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초`
       : "";
@@ -654,6 +640,7 @@ export default function GameClient() {
       title: `${definition.name} · T${item.tier}`,
       description: definition.description,
       detail: [characterStats, penaltyDetail ? `장착 패널티: ${penaltyDetail}` : "", `${activeRelationDetail}${squadDetail}`].filter(Boolean).join(" · "),
+      sharingCount: isCharacter ? undefined : sharingCharacters.length,
     };
     const showItemHelp = () => {
       setPreviewItemId(item.id);
@@ -701,6 +688,7 @@ export default function GameClient() {
         onKeyDown={dragGhost ? undefined : (event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
+          <span className="footprint-surface" aria-hidden="true" />
           {geometry.cells.map((cell) => {
             const hasTop = geometry.cells.some((other) => other.row === cell.row - 1 && other.col === cell.col);
             const hasBottom = geometry.cells.some((other) => other.row === cell.row + 1 && other.col === cell.col);
@@ -720,10 +708,6 @@ export default function GameClient() {
             >
               {hasRight && <span className={`segment-bridge bridge-right ${!hasTop ? "bridge-edge-top" : ""} ${!hasBottom ? "bridge-edge-bottom" : ""}`} />}
               {hasBottom && <span className={`segment-bridge bridge-down ${!hasLeft ? "bridge-edge-left" : ""} ${!hasRight ? "bridge-edge-right" : ""}`} />}
-              {connectionMarks.filter((mark) => mark.row === cell.row && mark.col === cell.col).map((mark) => <span
-                key={mark.key}
-                className={`connection-mark connection-${mark.direction} connection-active`}
-              >○</span>)}
             </span>;
           })}
           {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
@@ -752,21 +736,9 @@ export default function GameClient() {
     const position = { row: Number(rowValue) - drag.grabRow, col: Number(colValue) - drag.grabCol };
     const item = gridItems.find((entry) => entry.id === drag.id);
     if (!item) return null;
-    const result = dropItemOnGrid({ gridItems, pendingRewards: [] }, item.id, position);
+    const result = dropItemOnGrid({ gridItems, pendingRewards: [], unlockedColumns }, item.id, position);
     return { cells: getOccupiedCells(item, position), valid: result.success };
   })();
-
-  const openSocketTargets = new Set(gridItems.flatMap((item) => getWorldSockets(item).flatMap((socket) => {
-    const offsets: Record<Direction, [number, number]> = {
-      up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
-    };
-    const [rowOffset, colOffset] = offsets[socket.direction];
-    const target = { row: socket.position.row + rowOffset, col: socket.position.col + colOffset };
-    return target.row >= 0 && target.row < GRID_ROWS && target.col >= 0 && target.col < GRID_COLUMNS
-      && !getGridItemAt(gridItems, target)
-      ? [`${target.row}:${target.col}`]
-      : [];
-  })));
 
   return (
     <main className={`game-stage ${settings.reducedMotion ? "reduced-motion" : ""}`}>
@@ -812,7 +784,7 @@ export default function GameClient() {
             <div className="shop-offers">
               {shopOffers.map((offer) => {
                 const definition = ITEM_DEFINITIONS[offer.definitionId];
-                const purchasable = canPurchaseShopOffer(gridItems, gold, offer);
+                const purchasable = canPurchaseShopOffer(gridItems, gold, offer, unlockedColumns);
                 const shopDetail = definition.kind === "character"
                   ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초`
                   : definition.equipPenalty
@@ -853,6 +825,7 @@ export default function GameClient() {
           </div>}
 
           {hoverHelp && <div id="fixed-hover-help" className="fixed-hover-help" role="tooltip">
+            {hoverHelp.sharingCount !== undefined && <span className="fixed-hover-sharing">공유 캐릭터 {hoverHelp.sharingCount}명</span>}
             <span className="fixed-hover-icon" aria-hidden="true">{hoverHelp.icon}</span>
             <span className="fixed-hover-copy">
               <strong>{hoverHelp.title}</strong>
@@ -865,23 +838,25 @@ export default function GameClient() {
         <section className="command-panel" aria-label="가방 편성">
           <div className="backpack-frame">
             <div className="inventory-grid">
-              {Array.from({ length: GRID_ROWS * GRID_COLUMNS }, (_, index) => {
-                const position: GridPosition = { row: Math.floor(index / GRID_COLUMNS), col: index % GRID_COLUMNS };
+              {Array.from({ length: GRID_ROWS * INVENTORY_COLUMNS }, (_, index) => {
+                const position: GridPosition = { row: Math.floor(index / INVENTORY_COLUMNS), col: index % INVENTORY_COLUMNS };
                 const occupant = getGridItemAt(gridItems, position);
                 const item = gridItems.find((entry) => positionsEqual(entry.position, position));
                 const target = `grid:${position.row}:${position.col}`;
                 const previewed = dropPreview?.cells.some((cell) => positionsEqual(cell, position));
-                const socketTarget = openSocketTargets.has(`${position.row}:${position.col}`);
+                const locked = position.col >= unlockedColumns && position.col < PLAYER_DEPLOY_COLUMNS;
+                const enemyZone = position.col >= PLAYER_DEPLOY_COLUMNS;
                 return <div
                   key={target}
                   className={[
                     "grid-cell",
                     occupant ? "occupied-cell" : "",
-                    socketTarget ? "socket-target-cell" : "",
+                    locked ? "locked-cell" : "",
+                    enemyZone ? "enemy-zone-cell" : "",
                     previewed ? (dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
                   ].filter(Boolean).join(" ")}
-                  data-drop-target={target}
-                >{item && renderItem(item)}{socketTarget && <span className="socket-target-mark" aria-hidden="true">○</span>}</div>;
+                  data-drop-target={!locked && !enemyZone ? target : undefined}
+                >{item && renderItem(item)}{locked && <span className="cell-lock" aria-hidden="true">🔒</span>}{enemyZone && <span className="enemy-zone-mark" aria-hidden="true">♜</span>}</div>;
               })}
             </div>
           </div>

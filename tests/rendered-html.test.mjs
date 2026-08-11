@@ -47,14 +47,14 @@ test("header speed, compact canvas base health, and direct-purchase shop replace
   assert.doesNotMatch(client, /playerXp|playerLevel|level-up|level-modal|reward-options|selectedOfferId/);
 });
 
-test("inventory uses a 42px 7x5 board, bridged footprints, fixed icon help, and no linked sheen", async () => {
+test("inventory uses a locked 42px 6x5 board, continuous footprints, adjacency help, and no socket marks", async () => {
   const [client, styles] = await Promise.all([
     readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
   assert.match(client, /snapshot\.spawners\.find\(\(entry\) => entry\.id === item\.id\)/);
   assert.match(client, /className="spawn-cooldown-fill"/);
-  assert.match(client, /className={`connection-mark connection-/);
+  assert.doesNotMatch(client, /connection-mark connection-|getWorldSockets/);
   assert.match(client, /<span className="item-icon">\{definition\.icon\}<\/span>/);
   assert.match(client, /className="character-name-mini"/);
   assert.match(client, /"item-segment",/);
@@ -63,7 +63,7 @@ test("inventory uses a 42px 7x5 board, bridged footprints, fixed icon help, and 
   assert.match(client, /className="fixed-hover-help"/);
   assert.match(client, /className="fixed-hover-icon"/);
   assert.match(client, /getActiveWeaponConnections/);
-  assert.match(client, /className="socket-target-mark"/);
+  assert.doesNotMatch(client, /socket-target-mark|openSocketTargets/);
   assert.match(client, /장착 패널티/);
   assert.match(client, /const dragRef = useRef<DragState \| null>/);
   assert.match(client, /const dropTargetRef = useRef<string \| null>/);
@@ -76,20 +76,27 @@ test("inventory uses a 42px 7x5 board, bridged footprints, fixed icon help, and 
   assert.match(styles, /\.tier-1[^{}]*\{[^}]*#aeb3bc/s);
   assert.match(styles, /\.tier-2[^{}]*\{[^}]*#5bc9ff/s);
   assert.match(styles, /\.tier-3[^{}]*\{[^}]*#ffd15e/s);
-  assert.match(styles, /\.socket-target-cell/);
+  assert.doesNotMatch(styles, /\.socket-target-cell|\.connection-mark/);
   assert.doesNotMatch(client, /"linked-active"/);
   assert.doesNotMatch(styles, /\.grid-item\.linked-active/);
   assert.match(styles, /\.grid-item \.item-card\s*\{[^}]*gap:\s*4px/s);
+  assert.match(client, /className="footprint-surface"/);
+  assert.match(styles, /\.footprint-surface\s*\{[^}]*background:\s*var\(--footprint-bg\)/s);
+  assert.match(styles, /\.item-segment\s*\{[^}]*background:\s*transparent/s);
   assert.match(client, /segment-bridge bridge-right/);
   assert.match(client, /segment-bridge bridge-down/);
   assert.match(styles, /\.item-segment\.edge-top/);
   assert.match(styles, /\.item-segment\.edge-right/);
   assert.match(styles, /\.equipped-weapon-mini-3/);
   assert.match(styles, /--board-cell:\s*min\(42px/);
-  assert.match(styles, /grid-template-columns:\s*repeat\(7, var\(--board-cell\)\)/);
+  assert.match(styles, /grid-template-columns:\s*repeat\(6, var\(--board-cell\)\)/);
   assert.match(styles, /grid-template-rows:\s*repeat\(5, var\(--board-cell\)\)/);
   assert.match(styles, /\.inventory-grid \.grid-cell:nth-child\(odd\)/);
   assert.match(styles, /\.fixed-hover-help/);
+  assert.match(client, /className="fixed-hover-sharing"/);
+  assert.match(styles, /\.fixed-hover-sharing/);
+  assert.match(client, /locked-cell/);
+  assert.match(client, /enemy-zone-cell/);
   assert.match(styles, /grid-template-columns:\s*38px minmax\(0, 1fr\)/);
   assert.doesNotMatch(client, /rotateGridItem|selectedWeaponId|rotate-item-button|inventory-item-details|spawn-linked-flash/);
   assert.doesNotMatch(styles, /spawn-sheen|spawn-linked-flash|inventory-item-details|rotate-item-button|inventory-action-row|\.grid-item\.rotation-selected/);
@@ -116,6 +123,9 @@ test("renderer uses a uniform 2.5D projection and density limits", async () => {
   assert.match(renderer, /ALLY_DEPLOY_Y_MAX - ALLY_DEPLOY_Y_MIN/);
   assert.match(renderer, /drawSpawnerPlatform/);
   assert.match(renderer, /drawDeploymentGrid/);
+  assert.match(renderer, /BATTLEFIELD_COLUMNS/);
+  assert.match(renderer, /PLAYER_DEPLOY_COLUMNS/);
+  assert.match(renderer, /unit\.isStructure/);
   assert.match(renderer, /point\.scale \* 1\.05/);
   assert.match(renderer, /drawAbsorbingWeapon/);
   assert.match(renderer, /getSpawnArrivalProgress/);

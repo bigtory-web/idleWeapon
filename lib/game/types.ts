@@ -1,4 +1,7 @@
-export const GRID_COLUMNS = 7 as const;
+export const INVENTORY_COLUMNS = 6 as const;
+export const PLAYER_DEPLOY_COLUMNS = 5 as const;
+export const BATTLEFIELD_COLUMNS = 8 as const;
+export const STARTING_UNLOCKED_COLUMNS = 3 as const;
 export const GRID_ROWS = 5 as const;
 
 export type Tier = 1 | 2 | 3;
@@ -12,7 +15,7 @@ export type GamePhase =
 
 export type CharacterId = "shieldbearer" | "scout" | "sharpshooter";
 export type WeaponId = "sword" | "bow" | "hammer" | "wand";
-export type EnemyId = "grunt" | "runner" | "armored" | "thrower" | "boss";
+export type EnemyId = "grunt" | "runner" | "armored" | "thrower" | "boss" | "outpost";
 export type ItemId = CharacterId | WeaponId;
 export type ItemKind = "character" | "weapon";
 export type Direction = "up" | "right" | "down" | "left";
@@ -26,11 +29,6 @@ export interface GridPosition {
 export interface FootprintCell {
   row: number;
   col: number;
-}
-
-export interface ConnectionSocket {
-  cell: FootprintCell;
-  direction: Direction;
 }
 
 interface ItemDefinitionBase {
@@ -83,7 +81,6 @@ export interface WeaponDefinition extends ItemDefinitionBase {
   /** Portion of enemy armour ignored by this weapon (0–1). */
   armorPierce?: number;
   footprint: FootprintCell[];
-  sockets: ConnectionSocket[];
 }
 
 export type ItemDefinition = CharacterDefinition | WeaponDefinition;
@@ -107,6 +104,7 @@ export interface EnemyDefinition {
   /** Siege enemies deal this multiplier when no worker is blocking the base. */
   baseDamageMultiplier?: number;
   isBoss?: boolean;
+  isStructure?: boolean;
 }
 
 export interface GridItem {
@@ -213,6 +211,7 @@ export interface CombatUnitView {
   maxHp: number;
   facing: -1 | 1;
   isBoss?: boolean;
+  isStructure?: boolean;
   flash: number;
   spawnGlow: number;
   weapons?: CombatWeaponView[];
@@ -292,6 +291,7 @@ export type CombatEvent =
   | { type: "hud"; hud: CombatHud }
   | { type: "ally-spawned"; spawnerId: string; weaponItemIds: string[] }
   | { type: "wave-cleared"; waveIndex: number; goldEarned: number; metrics: CombatMetrics }
+  | { type: "board-column-unlocked"; waveIndex: number; column: 3 | 4 }
   | {
       type: "defeat";
       reason: DefeatReason;

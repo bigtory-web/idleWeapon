@@ -124,10 +124,6 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     ranged: false,
     equipPenalty: { moveSpeedMultiplier: 0.94 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
-    sockets: [
-      { cell: { row: 0, col: 0 }, direction: "left" },
-      { cell: { row: 0, col: 1 }, direction: "right" },
-    ],
   },
   bow: {
     id: "bow",
@@ -145,7 +141,6 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     ranged: true,
     equipPenalty: { hpMultiplier: 0.9 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 }],
-    sockets: [{ cell: { row: 0, col: 1 }, direction: "down" }],
   },
   hammer: {
     id: "hammer",
@@ -165,7 +160,6 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     armorPierce: 1,
     equipPenalty: { moveSpeedMultiplier: 0.86 },
     footprint: [{ row: 0, col: 0 }, { row: 1, col: 0 }, { row: 1, col: 1 }],
-    sockets: [{ cell: { row: 0, col: 0 }, direction: "up" }],
   },
   wand: {
     id: "wand",
@@ -184,10 +178,6 @@ export const WEAPONS: Record<WeaponId, WeaponDefinition> = {
     secondaryDamageMultiplier: 0.65,
     equipPenalty: { hpMultiplier: 0.92 },
     footprint: [{ row: 0, col: 0 }, { row: 0, col: 1 }],
-    sockets: [
-      { cell: { row: 0, col: 0 }, direction: "left" },
-      { cell: { row: 0, col: 1 }, direction: "right" },
-    ],
   },
 };
 
@@ -198,6 +188,18 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
 
 /** Enemy stats are prototype tuning values; the requested compositions are fixed below. */
 export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
+  outpost: {
+    id: "outpost",
+    name: "적 기지",
+    icon: "🏴",
+    color: "#ff6b7d",
+    hp: 1,
+    moveSpeed: 0,
+    damage: 0,
+    cooldown: 99,
+    range: 0,
+    isStructure: true,
+  },
   grunt: {
     id: "grunt",
     name: "졸개",
@@ -348,26 +350,26 @@ export const STARTING_INVENTORY: GridItem[] = [
     id: "start-shieldbearer",
     definitionId: "shieldbearer",
     tier: 1,
-    position: { row: 1, col: 1 },
+    position: { row: 3, col: 2 },
   },
   {
     id: "start-sword",
     definitionId: "sword",
     tier: 1,
-    position: { row: 1, col: 2 },
+    position: { row: 3, col: 0 },
     rotation: 0,
   },
   {
     id: "start-scout",
     definitionId: "scout",
     tier: 1,
-    position: { row: 1, col: 4 },
+    position: { row: 1, col: 1 },
   },
   {
     id: "start-bow",
     definitionId: "bow",
     tier: 1,
-    position: { row: 0, col: 5 },
+    position: { row: 0, col: 0 },
     rotation: 90,
   },
 ];
