@@ -10,12 +10,15 @@ import {
   WEAPON_DAMAGE_MULTIPLIER,
 } from "./data";
 import { getAllyDeployPosition, getBattleCellPosition } from "./battle-layout";
+import { getActiveEquipmentCombos } from "./combos";
 import {
   BATTLEFIELD_COLUMNS,
   GRID_ROWS,
   PLAYER_DEPLOY_COLUMNS,
   type CombatEvent,
   type CombatSnapshot,
+  type CombatRole,
+  type EquipmentComboId,
   type SpawnerBlueprint,
   type WaveStartInput,
 } from "./types";
@@ -53,6 +56,7 @@ interface CharacterDefinitionLike {
   meleeDamageMultiplier?: number;
   rangedDamageMultiplier?: number;
   rangeMultiplier?: number;
+  combatRole: CombatRole;
 }
 
 interface WeaponDefinitionLike {
@@ -64,6 +68,7 @@ interface WeaponDefinitionLike {
   attackKind: AttackKind;
   maxTargets: number;
   ranged: boolean;
+  targetPolicy?: "nearest" | "lowest-hp" | "densest" | "best-chain";
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
   equipPenalty?: {
@@ -104,6 +109,7 @@ interface SpawnerBlueprintLike {
   col: number;
   maxActive?: number;
   weapons: WeaponBlueprintLike[];
+  activeCombos?: EquipmentComboId[];
 }
 
 interface SpawnGroupLike {
@@ -159,6 +165,17 @@ interface AllyUnit extends BaseUnit {
   meleeDamageMultiplier: number;
   rangedDamageMultiplier: number;
   rangeMultiplier: number;
+  combatRole: CombatRole;
+  homeRow: number;
+  homeY: number;
+  activeCombos: Set<EquipmentComboId>;
+  shield: number;
+  maxShield: number;
+  barrierCooldown: number;
+  counterReady: boolean;
+  swordHits: number;
+  hammerHits: number;
+  firstHammerReady: boolean;
 }
 
 interface EnemyUnit extends BaseUnit {
@@ -190,16 +207,19 @@ interface InternalProjectile {
   kind: "projectile" | "chain" | "enemy";
   sourceDefinitionId: string;
   chainRatio: number;
+  extraChainTargets: number;
+  explodeOnChain: boolean;
 }
 
 interface InternalEffect {
   id: string;
-  kind: "spawn" | "hit" | "damage" | "slash" | "smash";
+  kind: "spawn" | "hit" | "damage" | "slash" | "smash" | "barrier" | "combo";
   x: number;
   y: number;
   life: number;
   maxLife: number;
   value?: number;
+  label?: string;
 }
 
 interface InternalSpawner {
@@ -457,6 +477,7 @@ export class CombatEngine {
           row: spawner.blueprint.row,
           col: spawner.blueprint.col,
           weapons: (spawner.blueprint.weapons ?? []).map((weapon) => ({ ...weapon })),
+          activeCombos: [...(spawner.blueprint.activeCombos ?? [])],
           cooldownRemaining: full ? spawner.cooldownDuration : Math.max(0, spawner.cooldown),
           cooldownDuration: spawner.cooldownDuration,
           progress,
@@ -478,6 +499,10 @@ export class CombatEngine {
         facing: unit.facing,
         flash: unit.flash,
         spawnGlow: unit.spawnGlow,
+        homeRow: unit.homeRow,
+        shield: unit.shield,
+        maxShield: unit.maxShield,
+        activeCombos: [...unit.activeCombos],
         weapons: unit.weapons.map((weapon) => ({
           definitionId: weapon.definitionId,
           tier: weapon.tier,
@@ -679,12 +704,20 @@ export class CombatEngine {
     if (target && target.hp > 0) {
       this.damageUnit(target, projectile.damage, projectile.sourceDefinitionId);
       if (projectile.chainRatio > 0 && target.side === "enemy") {
-        const second = this.enemies
+        const chained = this.enemies
           .filter((enemy) => enemy.id !== target.id && enemy.hp > 0 && this.distanceBetween(enemy, target) <= 72)
-          .sort((left, right) => this.distanceBetween(left, target) - this.distanceBetween(right, target))[0];
-        if (second) {
-          this.damageUnit(second, projectile.damage * projectile.chainRatio, projectile.sourceDefinitionId);
-          this.addEffect("hit", second.x, second.y - 12, 0.18);
+          .sort((left, right) => this.distanceBetween(left, target) - this.distanceBetween(right, target))
+          .slice(0, 1 + projectile.extraChainTargets);
+        for (const enemy of chained) {
+          this.damageUnit(enemy, projectile.damage * projectile.chainRatio, projectile.sourceDefinitionId);
+          this.addEffect("hit", enemy.x, enemy.y - 12, 0.18);
+        }
+        const finalTarget = chained.at(-1) ?? target;
+        if (projectile.explodeOnChain) {
+          for (const enemy of this.enemies.filter((candidate) => candidate.hp > 0 && this.distanceBetween(candidate, finalTarget) <= 30)) {
+            this.damageUnit(enemy, projectile.damage * 0.35, projectile.sourceDefinitionId);
+          }
+          this.addEffect("combo", finalTarget.x, finalTarget.y - 8, 0.45, undefined, "대마법사");
         }
       }
     } else if (projectile.side === "enemy" && projectile.targetId === null) {
@@ -701,16 +734,41 @@ export class CombatEngine {
         weapon.attackPulse = Math.max(0, weapon.attackPulse - dt / 0.12);
       }
       ally.fistCooldown = Math.max(0, ally.fistCooldown - dt);
+      ally.barrierCooldown = Math.max(0, ally.barrierCooldown - dt);
 
-      const target = this.closestEnemy(ally.x, ally.y);
-      if (!target) continue;
+      if (ally.activeCombos.has("arcane-aegis") && ally.barrierCooldown <= 0) {
+        let recipient: AllyUnit | null = null;
+        for (const candidate of this.allies) {
+          if (candidate.hp <= 0 || candidate.homeRow !== ally.homeRow) continue;
+          if (!recipient || candidate.shield < recipient.shield
+            || (candidate.shield === recipient.shield && this.distanceBetween(candidate, ally) < this.distanceBetween(recipient, ally))) {
+            recipient = candidate;
+          }
+        }
+        if (recipient) {
+          recipient.maxShield = Math.max(recipient.maxShield, recipient.maxHp * 0.18);
+          recipient.shield = recipient.maxShield;
+          this.addEffect("barrier", recipient.x, recipient.y - 8, 0.55, undefined, "비전 방벽");
+        }
+        ally.barrierCooldown = 4.5;
+      }
+
+      const target = this.selectEnemyForAlly(ally);
+      if (!target) {
+        this.applyFormationForces(ally, dt);
+        continue;
+      }
       ally.facing = target.x >= ally.x ? 1 : -1;
       const approachRange = this.getApproachRange(ally);
       const distance = this.distanceBetween(ally, target);
       if (distance > approachRange) {
         const travel = Math.min(ally.moveSpeed * dt, Math.max(0, distance - approachRange));
         this.moveUnitToward(ally, target.x, target.y, travel);
+      } else if (ally.combatRole === "marksman" && distance < approachRange * 0.55) {
+        const retreat = Math.min(ally.moveSpeed * 0.72 * dt, approachRange * 0.55 - distance);
+        this.moveUnitToward(ally, ally.x - Math.max(1, target.x - ally.x), ally.homeY, retreat);
       }
+      this.applyFormationForces(ally, dt);
 
       if (ally.weapons.length === 0) {
         if (ally.fistCooldown <= 0 && this.distanceBetween(ally, target) <= UNARMED_ATTACK.range) {
@@ -725,8 +783,10 @@ export class CombatEngine {
         if (weapon.cooldown > 0) continue;
         const definition = WEAPONS[weapon.definitionId];
         if (!definition) continue;
-        const effectiveRange = definition.range * (isRangedWeapon(definition) ? ally.rangeMultiplier : 1);
-        const weaponTarget = this.closestEnemy(ally.x, ally.y, effectiveRange);
+        const effectiveRange = definition.range
+          * (isRangedWeapon(definition) ? ally.rangeMultiplier : 1)
+          * (ally.activeCombos.has("grand-grimoire") && (definition.id === "wand" || definition.id === "spellbook") ? 1.15 : 1);
+        const weaponTarget = this.selectWeaponTarget(ally, definition, effectiveRange);
         if (!weaponTarget) continue;
         if (!this.attackWithWeapon(ally, weapon, definition, weaponTarget)) continue;
         weapon.cooldown = weapon.cooldownDuration;
@@ -741,7 +801,7 @@ export class CombatEngine {
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
       const target = enemy.targetPriority === "lowest-max-hp"
         ? this.lowestMaxHpAlly(enemy.x, enemy.y)
-        : this.closestAlly(enemy.x, enemy.y);
+        : this.closestAllyInFormation(enemy);
       const targetX = target?.x ?? BASE_X;
       const targetY = target?.y ?? 269;
       const distance = Math.hypot(targetX - enemy.x, targetY - enemy.y);
@@ -773,6 +833,8 @@ export class CombatEngine {
           kind: "enemy",
           sourceDefinitionId: enemy.definitionId,
           chainRatio: 0,
+          extraChainTargets: 0,
+          explodeOnChain: false,
         });
         this.metrics.projectilesCreated += 1;
       } else if (target) {
@@ -793,39 +855,81 @@ export class CombatEngine {
   ): boolean {
     const ranged = isRangedWeapon(definition);
     const characterMultiplier = ranged ? ally.rangedDamageMultiplier : ally.meleeDamageMultiplier;
-    const damage = definition.damage
+    let damage = definition.damage
       * WEAPON_DAMAGE_MULTIPLIER[weapon.tier]
       * CHARACTER_HP_AND_POWER_MULTIPLIER[ally.tier]
       * characterMultiplier;
+    if (ally.activeCombos.has("arcane-aegis")) damage *= 0.85;
+    if (ally.activeCombos.has("dual-blades") && definition.id === "sword") damage *= 0.85;
+    if (ally.activeCombos.has("grand-grimoire") && (definition.id === "wand" || definition.id === "spellbook")) damage *= 1.3;
+
+    let armorPierce = definition.armorPierce ?? 0;
+    if (definition.id === "sword") {
+      ally.swordHits += 1;
+      if (ally.activeCombos.has("vanguard") && ally.counterReady) {
+        damage *= 1.65;
+        ally.counterReady = false;
+        this.addEffect("combo", target.x, target.y - 13, 0.48, undefined, "선봉대");
+      }
+      if (ally.activeCombos.has("spellblade") && ally.swordHits % 3 === 0) {
+        damage *= 1.4;
+        armorPierce = 1;
+        this.addEffect("combo", target.x, target.y - 13, 0.48, undefined, "마검사");
+      }
+    }
 
     if (definition.attackKind === "projectile" || definition.attackKind === "chain") {
-      if (this.projectiles.length >= PROJECTILE_CAP) return false;
-      this.projectiles.push({
-        id: this.nextId("projectile"),
-        side: "ally",
-        x: ally.x + ally.facing * 10,
-        y: ally.y - 13,
-        prevX: ally.x,
-        prevY: ally.y - 13,
-        targetX: target.x,
-        targetY: target.y - 9,
-        targetId: target.id,
-        damage,
-        speed: definition.attackKind === "chain" ? 260 : 320,
-        kind: definition.attackKind === "chain" ? "chain" : "projectile",
-        sourceDefinitionId: definition.id,
-        chainRatio: definition.attackKind === "chain" ? definition.secondaryDamageMultiplier ?? 0.65 : 0,
-      });
-      this.metrics.projectilesCreated += 1;
+      const rapidBow = definition.id === "bow" && ally.activeCombos.has("rapid-bow");
+      const shots = rapidBow ? 2 : 1;
+      if (this.projectiles.length + shots > PROJECTILE_CAP) return false;
+      for (let shot = 0; shot < shots; shot += 1) {
+        this.projectiles.push({
+          id: this.nextId("projectile"),
+          side: "ally",
+          x: ally.x + ally.facing * 10,
+          y: ally.y - 13 + shot * 2,
+          prevX: ally.x,
+          prevY: ally.y - 13,
+          targetX: target.x,
+          targetY: target.y - 9,
+          targetId: target.id,
+          damage: rapidBow && shot === 1 ? damage * 0.7 : damage,
+          speed: definition.attackKind === "chain" ? 260 : 320,
+          kind: definition.attackKind === "chain" ? "chain" : "projectile",
+          sourceDefinitionId: definition.id,
+          chainRatio: definition.attackKind === "chain"
+            ? definition.secondaryDamageMultiplier ?? 0.65
+            : definition.id === "bow" && ally.activeCombos.has("arcane-arrow") ? 0.5 : 0,
+          extraChainTargets: definition.id === "wand" && ally.activeCombos.has("overcharge") ? 1 : 0,
+          explodeOnChain: definition.id === "wand" && ally.activeCombos.has("archmage"),
+        });
+      }
+      this.metrics.projectilesCreated += shots;
+      if (definition.id === "wand" && ally.activeCombos.has("overcharge")) {
+        ally.hp -= ally.maxHp * 0.01;
+        this.addEffect("combo", ally.x, ally.y - 18, 0.42, undefined, "과충전");
+      }
       return true;
     }
 
     if (definition.attackKind === "smash") {
+      ally.hammerHits += definition.id === "hammer" ? 1 : 0;
+      const earthquake = definition.id === "hammer" && ally.activeCombos.has("earthshaker") && ally.hammerHits % 3 === 0;
+      const ironbreaker = definition.id === "hammer" && ally.activeCombos.has("ironbreaker") && ally.firstHammerReady;
+      const effectRadius = (definition.effectRadius ?? 40) * (earthquake ? 1.75 : 1);
       const targets = this.enemies
-        .filter((enemy) => enemy.hp > 0 && this.distanceBetween(enemy, target) <= (definition.effectRadius ?? 40))
+        .filter((enemy) => enemy.hp > 0 && this.distanceBetween(enemy, target) <= effectRadius)
         .sort((left, right) => this.distanceBetween(left, target) - this.distanceBetween(right, target))
-        .slice(0, definition.maxTargets);
-      for (const enemy of targets) this.damageUnit(enemy, damage, definition.id, definition.armorPierce);
+        .slice(0, earthquake ? Math.max(definition.maxTargets, 8) : definition.maxTargets);
+      for (const enemy of targets) {
+        this.damageUnit(enemy, damage * (earthquake ? 1.25 : 1), definition.id, ironbreaker ? 1 : armorPierce);
+        if (ironbreaker) enemy.x = Math.min(ENEMY_SPAWN_X, enemy.x + 14);
+      }
+      if (earthquake) this.addEffect("combo", target.x, target.y - 10, 0.5, undefined, "지진술사");
+      if (ironbreaker) {
+        ally.firstHammerReady = false;
+        this.addEffect("combo", target.x, target.y - 10, 0.5, undefined, "철갑 파쇄자");
+      }
       this.addEffect("smash", target.x, target.y, 0.32);
       return true;
     }
@@ -835,7 +939,7 @@ export class CombatEngine {
       .sort((left, right) => this.distanceBetween(left, ally) - this.distanceBetween(right, ally))
       .slice(0, definition.maxTargets);
     if (targets.length === 0) return false;
-    for (const enemy of targets) this.damageUnit(enemy, damage, definition.id, definition.armorPierce);
+    for (const enemy of targets) this.damageUnit(enemy, damage, definition.id, armorPierce);
     this.addEffect("slash", target.x, target.y - 8, 0.2);
     return true;
   }
@@ -844,6 +948,8 @@ export class CombatEngine {
     const definition = CHARACTERS[blueprint.characterId];
     if (!definition) return;
     const tier = clamp(Math.round(blueprint.tier), 1, 3) as Tier;
+    const activeCombos = new Set<EquipmentComboId>(blueprint.activeCombos
+      ?? getActiveEquipmentCombos((blueprint.weapons ?? []) as never).map(({ id }) => id));
     const weapons = (blueprint.weapons ?? [])
       .filter((entry) => Boolean(WEAPONS[entry.weaponId]))
       .map((entry) => {
@@ -853,7 +959,10 @@ export class CombatEngine {
           tier: clamp(Math.round(entry.tier), 1, 3) as Tier,
           direction: entry.direction,
           cooldown: this.random.between(0, Math.min(0.15, weapon.cooldown * 0.2)),
-          cooldownDuration: weapon.cooldown,
+          cooldownDuration: weapon.cooldown
+            * (entry.weaponId === "sword" && activeCombos.has("dual-blades") ? 0.65 : 1)
+            * (entry.weaponId === "bow" && activeCombos.has("rapid-bow") ? 1.2 : 1)
+            * ((entry.weaponId === "wand" || entry.weaponId === "spellbook") && activeCombos.has("grand-grimoire") ? 1.15 : 1),
           attackPulse: 0,
         } satisfies InternalWeapon;
       });
@@ -864,7 +973,10 @@ export class CombatEngine {
         moveSpeedMultiplier: total.moveSpeedMultiplier * (weaponPenalty?.moveSpeedMultiplier ?? 1),
       };
     }, { hpMultiplier: 1, moveSpeedMultiplier: 1 });
-    const maxHp = definition.hp * CHARACTER_HP_AND_POWER_MULTIPLIER[tier] * penalty.hpMultiplier;
+    const maxHp = definition.hp * CHARACTER_HP_AND_POWER_MULTIPLIER[tier] * penalty.hpMultiplier
+      * (activeCombos.has("archmage") ? 0.92 : 1);
+    const comboMoveMultiplier = (activeCombos.has("earthshaker") ? 0.88 : 1)
+      * (activeCombos.has("fortress") ? 0.75 : 1);
     const spawn = this.allySpawnPosition(blueprint.row, blueprint.col);
     this.allies.push({
       id: this.nextId("ally"),
@@ -877,7 +989,7 @@ export class CombatEngine {
       y: spawn.y,
       hp: maxHp,
       maxHp,
-      moveSpeed: definition.moveSpeed * penalty.moveSpeedMultiplier,
+      moveSpeed: definition.moveSpeed * penalty.moveSpeedMultiplier * comboMoveMultiplier,
       facing: 1,
       flash: 0,
       spawnGlow: 0.42,
@@ -886,6 +998,17 @@ export class CombatEngine {
       meleeDamageMultiplier: definition.meleeDamageMultiplier ?? 1,
       rangedDamageMultiplier: definition.rangedDamageMultiplier ?? 1,
       rangeMultiplier: definition.rangeMultiplier ?? 1,
+      combatRole: definition.combatRole ?? "guard",
+      homeRow: blueprint.row,
+      homeY: getAllyDeployPosition(blueprint.row, blueprint.col).y,
+      activeCombos,
+      shield: 0,
+      maxShield: 0,
+      barrierCooldown: this.random.between(0.4, 1),
+      counterReady: false,
+      swordHits: 0,
+      hammerHits: 0,
+      firstHammerReady: true,
     });
     this.metrics.alliesSpawned[definition.id] = (this.metrics.alliesSpawned[definition.id] ?? 0) + 1;
     this.addEffect("spawn", spawn.x, spawn.y, 0.45);
@@ -932,8 +1055,21 @@ export class CombatEngine {
 
   private damageUnit(unit: BaseUnit, rawDamage: number, sourceDefinitionId: string, armorPierce = 0): void {
     if (unit.hp <= 0) return;
+    let incoming = Math.max(0, finite(rawDamage, 0));
+    if (unit.side === "ally") {
+      const ally = unit as AllyUnit;
+      if (ally.activeCombos.has("fortress")) incoming *= 0.55;
+      if (ally.activeCombos.has("vanguard")) ally.counterReady = true;
+      if (ally.shield > 0) {
+        const absorbed = Math.min(ally.shield, incoming);
+        ally.shield -= absorbed;
+        incoming -= absorbed;
+        this.addEffect("barrier", ally.x, ally.y - 8, 0.28);
+      }
+    }
     const armor = unit.side === "enemy" ? Math.max(0, (unit as EnemyUnit).armor - armorPierce) : 0;
-    const damage = Math.max(0, finite(rawDamage, 0)) * (1 - armor);
+    const damage = incoming * (1 - armor);
+    if (damage <= 0) return;
     unit.hp -= damage;
     unit.flash = 0.09;
     this.addEffect("damage", unit.x, unit.y - 20, 0.58, Math.max(1, Math.round(damage)));
@@ -968,14 +1104,21 @@ export class CombatEngine {
 
   private getApproachRange(ally: AllyUnit): number {
     if (ally.weapons.length === 0) return UNARMED_ATTACK.range;
-    let shortest = Number.POSITIVE_INFINITY;
+    let longestRanged = 0;
+    let shortestMelee = Number.POSITIVE_INFINITY;
     for (const equipped of ally.weapons) {
       const definition = WEAPONS[equipped.definitionId];
       if (!definition) continue;
-      const range = definition.range * (isRangedWeapon(definition) ? ally.rangeMultiplier : 1);
-      shortest = Math.min(shortest, range);
+      const range = definition.range
+        * (isRangedWeapon(definition) ? ally.rangeMultiplier : 1)
+        * (ally.activeCombos.has("grand-grimoire") && (definition.id === "wand" || definition.id === "spellbook") ? 1.15 : 1);
+      if (isRangedWeapon(definition)) longestRanged = Math.max(longestRanged, range);
+      else shortestMelee = Math.min(shortestMelee, range);
     }
-    return Number.isFinite(shortest) ? shortest : UNARMED_ATTACK.range;
+    if (ally.combatRole === "marksman" && longestRanged > 0) return longestRanged * 0.75;
+    if (longestRanged > 0 && !Number.isFinite(shortestMelee)) return longestRanged * 0.68;
+    if (longestRanged > 0 && ally.activeCombos.has("arcane-aegis")) return longestRanged * 0.58;
+    return Number.isFinite(shortestMelee) ? shortestMelee : longestRanged || UNARMED_ATTACK.range;
   }
 
   private getSpawnerCooldown(blueprint: SpawnerBlueprintLike): number {
@@ -1005,6 +1148,54 @@ export class CombatEngine {
     return result;
   }
 
+  private selectEnemyForAlly(ally: AllyUnit): EnemyUnit | null {
+    let result: EnemyUnit | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const enemy of this.enemies) {
+      if (enemy.hp <= 0) continue;
+      const lanePenalty = Math.abs(this.rowForY(enemy.y) - ally.homeRow) * 28;
+      const roleBonus = ally.combatRole === "flanker" && enemy.definitionId === "thrower" ? -180 : 0;
+      const woundedBonus = ally.combatRole === "flanker" ? (enemy.hp / enemy.maxHp) * 20 : 0;
+      const score = this.distanceBetween(ally, enemy) + lanePenalty + roleBonus + woundedBonus;
+      if (score < bestScore) {
+        bestScore = score;
+        result = enemy;
+      }
+    }
+    return result;
+  }
+
+  private selectWeaponTarget(ally: AllyUnit, definition: WeaponDefinitionLike, maximumDistance: number): EnemyUnit | null {
+    let result: EnemyUnit | null = null;
+    let bestPrimary = Number.POSITIVE_INFINITY;
+    let bestSecondary = Number.POSITIVE_INFINITY;
+    const clustered = definition.targetPolicy === "densest" || definition.targetPolicy === "best-chain";
+    const radius = definition.targetPolicy === "densest" ? definition.effectRadius ?? 40 : 72;
+    for (const enemy of this.enemies) {
+      if (enemy.hp <= 0) continue;
+      const distance = this.distanceBetween(ally, enemy);
+      if (distance > maximumDistance) continue;
+      const lane = Math.abs(this.rowForY(enemy.y) - ally.homeRow) * 28;
+      let primary = lane;
+      let secondary = distance;
+      if (definition.targetPolicy === "lowest-hp") {
+        primary = enemy.hp;
+        secondary = lane + distance * 0.01;
+      } else if (clustered) {
+        let density = 0;
+        for (const candidate of this.enemies) if (candidate.hp > 0 && this.distanceBetween(candidate, enemy) <= radius) density += 1;
+        primary = -density;
+        secondary = lane + distance * 0.01;
+      }
+      if (primary < bestPrimary || (primary === bestPrimary && secondary < bestSecondary)) {
+        result = enemy;
+        bestPrimary = primary;
+        bestSecondary = secondary;
+      }
+    }
+    return result;
+  }
+
   private closestAlly(originX: number, originY: number): AllyUnit | null {
     let result: AllyUnit | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
@@ -1019,10 +1210,45 @@ export class CombatEngine {
     return result;
   }
 
+  private closestAllyInFormation(enemy: EnemyUnit): AllyUnit | null {
+    let guard: AllyUnit | null = null;
+    let guardDistance = 45;
+    for (const ally of this.allies) {
+      const distance = this.distanceBetween(enemy, ally);
+      if (ally.hp > 0 && ally.combatRole === "guard" && distance <= guardDistance) {
+        guard = ally;
+        guardDistance = distance;
+      }
+    }
+    if (guard) return guard;
+    const enemyRow = this.rowForY(enemy.y);
+    let result: AllyUnit | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const ally of this.allies) {
+      if (ally.hp <= 0) continue;
+      const score = this.distanceBetween(enemy, ally) + Math.abs(ally.homeRow - enemyRow) * 28;
+      if (score < bestScore) {
+        result = ally;
+        bestScore = score;
+      }
+    }
+    return result;
+  }
+
   private lowestMaxHpAlly(originX: number, originY: number): AllyUnit | null {
-    const living = this.allies.filter((ally) => ally.hp > 0);
-    if (living.length === 0) return null;
-    return living.sort((left, right) => left.maxHp - right.maxHp || this.distanceBetween(left, { x: originX, y: originY }) - this.distanceBetween(right, { x: originX, y: originY }))[0] ?? null;
+    let result: AllyUnit | null = null;
+    let bestHp = Number.POSITIVE_INFINITY;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const ally of this.allies) {
+      if (ally.hp <= 0) continue;
+      const distance = Math.hypot(ally.x - originX, ally.y - originY);
+      if (ally.maxHp < bestHp || (ally.maxHp === bestHp && distance < bestDistance)) {
+        result = ally;
+        bestHp = ally.maxHp;
+        bestDistance = distance;
+      }
+    }
+    return result;
   }
 
   private distanceBetween(left: Pick<BaseUnit, "x" | "y">, right: Pick<BaseUnit, "x" | "y">): number {
@@ -1037,6 +1263,26 @@ export class CombatEngine {
     const step = Math.min(travel, distance);
     unit.x += (dx / distance) * step;
     unit.y += (dy / distance) * step;
+  }
+
+  private applyFormationForces(ally: AllyUnit, dt: number): void {
+    const rowGap = ally.homeY - ally.y;
+    ally.y += clamp(rowGap, -35 * dt, 35 * dt);
+    for (const other of this.allies) {
+      if (other.id === ally.id || other.hp <= 0) continue;
+      const dx = ally.x - other.x;
+      const dy = ally.y - other.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance <= 0 || distance >= 10) continue;
+      const push = Math.min((10 - distance) * 0.5, 18 * dt);
+      ally.x += (dx / distance) * push;
+      ally.y += (dy / distance) * push;
+    }
+    ally.y = clamp(ally.y, 226, 314);
+  }
+
+  private rowForY(y: number): number {
+    return clamp(Math.round((y - 230) / 20), 0, GRID_ROWS - 1);
   }
 
   private findUnit(id: string): BaseUnit | null {
@@ -1064,6 +1310,7 @@ export class CombatEngine {
     y: number,
     duration: number,
     value?: number,
+    label?: string,
   ): void {
     if (this.effects.length >= 220) this.effects.shift();
     this.effects.push({
@@ -1074,6 +1321,7 @@ export class CombatEngine {
       life: duration,
       maxLife: duration,
       value,
+      label,
     });
   }
 

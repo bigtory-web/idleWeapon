@@ -46,6 +46,8 @@ interface UnitViewLike {
   spawnGlow: number;
   visualScale?: number;
   weapons?: WeaponViewLike[];
+  shield?: number;
+  maxShield?: number;
 }
 
 interface ProjectileViewLike {
@@ -62,12 +64,13 @@ interface ProjectileViewLike {
 
 interface EffectViewLike {
   id: string;
-  kind: "spawn" | "hit" | "damage" | "slash" | "smash";
+  kind: "spawn" | "hit" | "damage" | "slash" | "smash" | "barrier" | "combo";
   x: number;
   y: number;
   life: number;
   maxLife: number;
   value?: number;
+  label?: string;
 }
 
 interface SpawnerViewLike {
@@ -459,6 +462,17 @@ function drawUnit(
   }
   context.restore();
 
+  if (unit.side === "ally" && (unit.shield ?? 0) > 0) {
+    const shieldRatio = clamp((unit.shield ?? 0) / Math.max(1, unit.maxShield ?? 1), 0, 1);
+    context.save();
+    context.strokeStyle = `rgba(116,224,255,${0.35 + shieldRatio * 0.5})`;
+    context.lineWidth = 1.5 + shieldRatio;
+    context.beginPath();
+    context.ellipse(unit.x, unit.y - 8, 12 * scale, 19 * scale, 0, 0, Math.PI * 2);
+    context.stroke();
+    context.restore();
+  }
+
   if (unit.side === "ally" && unit.weapons) {
     for (let index = 0; index < unit.weapons.length; index += 1) {
       if (spawning) drawAbsorbingWeapon(context, unit, unit.weapons[index], index, spawnProgress);
@@ -702,6 +716,27 @@ function drawWeaponGlyph(context: CanvasRenderingContext2D, definitionId: string
     context.stroke();
     return;
   }
+  if (/shield|방패/.test(id)) {
+    context.fillStyle = "#6fc9ef";
+    context.beginPath();
+    context.moveTo(0, -9);
+    context.lineTo(7, -6);
+    context.lineTo(6, 3);
+    context.quadraticCurveTo(0, 10, -6, 3);
+    context.lineTo(-7, -6);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    return;
+  }
+  if (/spellbook|book|책/.test(id)) {
+    context.fillStyle = "#a579d6";
+    roundedRectPath(context, -8, -8, 16, 15, 2);
+    context.fill();
+    context.stroke();
+    line(context, 0, -7, 0, 6, "#eadcff", 1.2);
+    return;
+  }
   if (/wand|magic|staff|마법/.test(id)) {
     line(context, -4, 7, 3, -4, "#c2955a", 2.5);
     context.fillStyle = "#cf89ff";
@@ -849,6 +884,21 @@ function drawForegroundEffects(
           COLORS.gold,
         );
       }
+    } else if (effect.kind === "barrier") {
+      context.strokeStyle = `rgba(116,224,255,${ratio})`;
+      context.lineWidth = 2;
+      context.beginPath();
+      context.ellipse(effect.x, effect.y, 10 + progress * 12, 17 + progress * 8, 0, 0, Math.PI * 2);
+      context.stroke();
+    } else if (effect.kind === "combo") {
+      context.translate(effect.x, effect.y - progress * 10);
+      context.font = "800 9px ui-rounded, system-ui, sans-serif";
+      context.textAlign = "center";
+      context.lineWidth = 3;
+      context.strokeStyle = COLORS.ink;
+      context.fillStyle = COLORS.gold;
+      context.strokeText(effect.label ?? "조합!", 0, 0);
+      context.fillText(effect.label ?? "조합!", 0, 0);
     } else {
       context.translate(effect.x, effect.y);
       context.strokeStyle = COLORS.white;

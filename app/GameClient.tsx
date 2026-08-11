@@ -20,7 +20,6 @@ import {
 } from "@/lib/game/data";
 import { CombatEngine } from "@/lib/game/engine";
 import {
-  autoMergeInventory,
   deriveSpawnerBlueprints,
   dropItemOnGrid,
   getActiveWeaponConnections,
@@ -31,6 +30,7 @@ import {
   normalizeRotation,
   positionsEqual,
 } from "@/lib/game/inventory";
+import { getActiveEquipmentCombos, getComboRecipesForWeapon } from "@/lib/game/combos";
 import { renderBattle } from "@/lib/game/render";
 import { normalizeBattleSpeed } from "@/lib/game/speed";
 import {
@@ -54,6 +54,7 @@ import {
   type RunReportV2,
   type ShopOffer,
   type ShopPurchase,
+  type WeaponId,
 } from "@/lib/game/types";
 
 type UiPhase = GamePhase | "transition";
@@ -254,11 +255,10 @@ export default function GameClient() {
     }
   }, []);
 
-  const commitInventory = useCallback((nextGridItems: GridItem[], autoMerge = true) => {
-    const merged = autoMerge ? autoMergeInventory(nextGridItems, []) : { gridItems: nextGridItems, pendingRewards: [], merges: [] };
-    gridRef.current = merged.gridItems;
-    setGridItems(merged.gridItems);
-    return merged;
+  const commitInventory = useCallback((nextGridItems: GridItem[]) => {
+    gridRef.current = nextGridItems;
+    setGridItems(nextGridItems);
+    return { gridItems: nextGridItems, pendingRewards: [], merges: [] as never[] };
   }, []);
 
   const finishRun = useCallback((result: "victory" | "defeat", reachedWave: number, defeatReason?: RunReportV2["defeatReason"]) => {
@@ -407,6 +407,7 @@ export default function GameClient() {
             row: blueprint.row,
             col: blueprint.col,
             weapons: blueprint.weapons,
+            activeCombos: blueprint.activeCombos ?? [],
             cooldownRemaining: 0,
             cooldownDuration: 1,
             progress: 1,
@@ -519,7 +520,7 @@ export default function GameClient() {
       showToast(result.reason === "not-enough-gold" ? "골드가 부족해요." : "가방에 넣을 자리가 없어요.", "warning");
       return;
     }
-    commitInventory(result.gridItems, false);
+    commitInventory(result.gridItems);
     goldRef.current = result.gold;
     setGold(result.gold);
     goldSpentRef.current += offer.price;
@@ -534,7 +535,7 @@ export default function GameClient() {
     setPurchases(purchasesRef.current);
     setShopOffers((current) => current.map((entry) => entry.id === offer.id ? { ...entry, purchased: true } : entry));
     playTone(690, 0.1);
-    showToast(`${ITEM_DEFINITIONS[offer.definitionId].name} 구매 완료${result.merges ? ` · ${result.merges}회 합성` : ""}`, "success");
+    showToast(`${ITEM_DEFINITIONS[offer.definitionId].name} 구매 완료`, "success");
   }, [commitInventory, playTone, shopOffers, showToast]);
 
   const togglePause = useCallback(() => {
@@ -548,7 +549,7 @@ export default function GameClient() {
 
   const applyInventory = useCallback((nextGridItems: GridItem[], message?: string) => {
     const merged = commitInventory(nextGridItems);
-    if (message || merged.merges.length) showToast(message ?? `${merged.merges.length}회 자동 합성 완료!`, "success");
+    if (message) showToast(message, "success");
   }, [commitInventory, showToast]);
 
   const completeDrop = useCallback((itemId: string, target: string | null, grabRow = 0, grabCol = 0) => {
@@ -561,7 +562,7 @@ export default function GameClient() {
       { row: Number(rowValue) - grabRow, col: Number(colValue) - grabCol },
     );
     if (result.success) {
-      applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
+      applyInventory(result.gridItems, result.action === "merged" ? "아이템 합성 완료!" : undefined);
     } else {
       showToast("그 위치에는 놓을 수 없어요.", "warning");
     }
@@ -654,7 +655,7 @@ export default function GameClient() {
       itemId,
       { row: item.position.row + delta[0], col: item.position.col + delta[1] },
     );
-    if (result.success) applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
+    if (result.success) applyInventory(result.gridItems, result.action === "merged" ? "아이템 합성 완료!" : undefined);
   }, [applyInventory]);
 
   const renderItem = (item: GridItem, options: { dragGhost?: boolean } = {}) => {
@@ -679,12 +680,20 @@ export default function GameClient() {
         definition.equipPenalty.moveSpeedMultiplier ? `이동 -${Math.round((1 - definition.equipPenalty.moveSpeedMultiplier) * 100)}%` : "",
       ].filter(Boolean).join(" · ")
       : "";
+    const activeCombos = isCharacter
+      ? getActiveEquipmentCombos(activeConnections.map(({ item: weapon }) => ({ weaponId: weapon.definitionId as WeaponId })))
+      : [];
+    const comboDetail = isCharacter
+      ? activeCombos.length
+        ? `활성 조합: ${activeCombos.map(({ name }) => name).join(", ")}`
+        : "활성 조합 없음"
+      : `조합식: ${getComboRecipesForWeapon(item.definitionId as WeaponId).map(({ name }) => name).join(", ")}`;
     const itemHelp: HoverHelp = {
       key: `item:${item.id}`,
       icon: definition.icon,
       title: `${definition.name} · T${item.tier}`,
       description: definition.description,
-      detail: [characterStats, penaltyDetail ? `장착 패널티: ${penaltyDetail}` : "", `${activeRelationDetail}${squadDetail}`].filter(Boolean).join(" · "),
+      detail: [characterStats, penaltyDetail ? `장착 패널티: ${penaltyDetail}` : "", `${activeRelationDetail}${squadDetail}`, comboDetail].filter(Boolean).join(" · "),
       sharingCount: isCharacter ? undefined : sharingCharacters.length,
     };
     const showItemHelp = () => {
@@ -831,9 +840,9 @@ export default function GameClient() {
                 const purchasable = canPurchaseShopOffer(gridItems, gold, offer, unlockedColumns);
                 const shopDetail = definition.kind === "character"
                   ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초`
-                  : definition.equipPenalty
+                  : [definition.equipPenalty
                     ? `장착 패널티: ${definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}`
-                    : undefined;
+                    : "", `조합식: ${getComboRecipesForWeapon(definition.id as WeaponId).map(({ name }) => name).join(", ")}`].filter(Boolean).join(" · ");
                 const shopHelp: HoverHelp = {
                   key: `shop:${offer.id}`,
                   icon: definition.icon,

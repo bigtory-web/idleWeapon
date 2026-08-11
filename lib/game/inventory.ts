@@ -1,4 +1,5 @@
 import { CHARACTERS, ITEM_DEFINITIONS, WEAPONS, isCharacterId, isWeaponId } from "./data";
+import { getActiveEquipmentCombos } from "./combos";
 import {
   INVENTORY_COLUMNS,
   PLAYER_DEPLOY_COLUMNS,
@@ -32,7 +33,7 @@ const ROTATIONS: Rotation[] = [0, 90, 180, 270];
 
 export interface AdjacentWeaponConnection { item: GridItem; direction: Direction; characterCell: FootprintCell }
 export interface InventoryState { gridItems: GridItem[]; pendingRewards: PendingReward[]; unlockedColumns?: number }
-export type InventoryFailureReason = "item-not-found" | "target-not-found" | "invalid-position" | "same-item" | "not-characters" | "different-character" | "different-tier" | "max-tier";
+export type InventoryFailureReason = "item-not-found" | "target-not-found" | "invalid-position" | "same-item" | "different-item" | "different-tier" | "max-tier";
 export interface InventoryActionResult extends InventoryState {
   success: boolean;
   reason?: InventoryFailureReason;
@@ -41,17 +42,6 @@ export interface InventoryActionResult extends InventoryState {
 }
 export interface GridMoveResult { items: GridItem[]; moved: boolean; swappedWith?: string; reason?: "item-not-found" | "invalid-position" }
 export interface PlaceRewardResult { gridItems: GridItem[]; success: boolean; position?: GridPosition; rotation?: Rotation; reason?: "grid-full" }
-export interface MergeRecord {
-  kind: "weapon" | "character";
-  definitionId: ItemId;
-  fromTier: 1 | 2;
-  toTier: 2 | 3;
-  survivorId: string;
-  consumedId: string;
-  location: "grid" | "queue";
-  position: GridPosition | null;
-}
-export interface AutoMergeResult extends InventoryState { merges: MergeRecord[] }
 interface LocatedInventoryItem {
   storage: "grid" | "queue";
   index: number;
@@ -216,20 +206,24 @@ export function getCharactersSharingWeapon(weapon: GridItem, allItems: readonly 
 export function deriveSpawnerBlueprints(items: readonly GridItem[]): SpawnerBlueprint[] {
   return items.filter((item): item is GridItem & { position: GridPosition } => item.position !== null && isCharacterId(item.definitionId))
     .sort((left, right) => compareGridPositions(left.position, right.position))
-    .map((character) => ({
-      id: character.id,
-      characterId: character.definitionId as keyof typeof CHARACTERS,
-      tier: character.tier,
-      row: character.position.row,
-      col: character.position.col,
-      maxActive: CHARACTERS[character.definitionId as keyof typeof CHARACTERS].squadCaps[character.tier],
-      weapons: getActiveWeaponConnections(character, items).map(({ item, direction }): EquippedWeaponSnapshot => ({
+    .map((character) => {
+      const weapons = getActiveWeaponConnections(character, items).map(({ item, direction }): EquippedWeaponSnapshot => ({
         sourceItemId: item.id,
         weaponId: item.definitionId as WeaponId,
         tier: item.tier,
         direction,
-      })),
-    }));
+      }));
+      return {
+        id: character.id,
+        characterId: character.definitionId as keyof typeof CHARACTERS,
+        tier: character.tier,
+        row: character.position.row,
+        col: character.position.col,
+        maxActive: CHARACTERS[character.definitionId as keyof typeof CHARACTERS].squadCaps[character.tier],
+        weapons,
+        activeCombos: getActiveEquipmentCombos(weapons).map(({ id }) => id),
+      };
+    });
 }
 
 export function createSpawnLoadoutSnapshot(blueprint: SpawnerBlueprint): SpawnLoadoutSnapshot {
@@ -306,13 +300,12 @@ export function reorderPendingReward(state: InventoryState, rewardId: string, ta
   return { gridItems: cloneGridItems(state.gridItems), pendingRewards, success: true, action: "reordered" };
 }
 
-export function mergeCharacters(state: InventoryState, sourceId: string, targetId: string): InventoryActionResult {
+export function mergeInventoryItems(state: InventoryState, sourceId: string, targetId: string): InventoryActionResult {
   const source = findLocatedItem(state, sourceId);
   const target = findLocatedItem(state, targetId);
   if (!source || !target) return failedState(state, !source ? "item-not-found" : "target-not-found");
   if (source.id === target.id) return failedState(state, "same-item");
-  if (!isCharacterId(source.definitionId) || !isCharacterId(target.definitionId)) return failedState(state, "not-characters");
-  if (source.definitionId !== target.definitionId) return failedState(state, "different-character");
+  if (source.definitionId !== target.definitionId) return failedState(state, "different-item");
   if (source.tier !== target.tier) return failedState(state, "different-tier");
   if (target.tier === 3) return failedState(state, "max-tier");
   const nextTier = (target.tier + 1) as 2 | 3;
@@ -324,49 +317,15 @@ export function mergeCharacters(state: InventoryState, sourceId: string, targetI
   };
 }
 
-export function autoMergeInventory(gridItemsInput: readonly GridItem[], pendingRewardsInput: readonly PendingReward[]): AutoMergeResult {
-  const gridItems = cloneGridItems(gridItemsInput);
-  const pendingRewards = pendingRewardsInput.map((reward) => ({ ...reward }));
-  const merges: MergeRecord[] = [];
-  for (const definitionId of Object.keys(ITEM_DEFINITIONS) as ItemId[]) {
-    for (const tier of [1, 2] as const) {
-      let candidates = collectMergeCandidates(gridItems, pendingRewards, definitionId, tier);
-      while (candidates.length >= 2) {
-        const survivor = candidates[0]!;
-        const consumed = candidates[1]!;
-        const nextTier = (tier + 1) as 2 | 3;
-        updateLocatedTier(gridItems, pendingRewards, survivor, nextTier);
-        removeLocatedItem(gridItems, pendingRewards, consumed);
-        merges.push({
-          kind: isWeaponId(definitionId) ? "weapon" : "character",
-          definitionId,
-          fromTier: tier,
-          toTier: nextTier,
-          survivorId: survivor.id,
-          consumedId: consumed.id,
-          location: survivor.storage,
-          position: survivor.position ? { ...survivor.position } : null,
-        });
-        candidates = collectMergeCandidates(gridItems, pendingRewards, definitionId, tier);
-      }
-    }
-  }
-  return { gridItems, pendingRewards, merges };
-}
-
-export function autoMergeWeapons(gridItemsInput: readonly GridItem[], pendingRewardsInput: readonly PendingReward[]): AutoMergeResult {
-  const merged = autoMergeInventory(gridItemsInput, pendingRewardsInput);
-  // Compatibility export: callers now receive all automatic merges by design.
-  return merged;
-}
-export const mergeWeaponsForPreparation = autoMergeWeapons;
+export const mergeCharacters = mergeInventoryItems;
 
 export function dropItemOnGrid(state: InventoryState, sourceId: string, targetPosition: GridPosition): InventoryActionResult {
   const source = findLocatedItem(state, sourceId);
   if (!source) return failedState(state, "item-not-found");
   const target = getGridItemAt(state.gridItems, targetPosition);
-  if (target && source.id !== target.id && isCharacterId(source.definitionId)
-    && source.definitionId === target.definitionId && source.tier === target.tier) return mergeCharacters(state, source.id, target.id);
+  if (target && source.id !== target.id && source.definitionId === target.definitionId && source.tier === target.tier) {
+    return mergeInventoryItems(state, source.id, target.id);
+  }
   if (source.storage === "queue") return movePendingRewardToGrid(state, source.id, targetPosition);
   const result = moveGridItem(state.gridItems, source.id, targetPosition, state.unlockedColumns);
   return {
@@ -402,24 +361,5 @@ function findLocatedItem(state: InventoryState, id: string): LocatedInventoryIte
     return { storage: "queue", index: queueIndex, id: item.id, definitionId: item.definitionId, tier: item.tier, position: null };
   }
   return undefined;
-}
-function collectMergeCandidates(gridItems: readonly GridItem[], pendingRewards: readonly PendingReward[], definitionId: ItemId, tier: 1 | 2): LocatedInventoryItem[] {
-  const grid = gridItems.flatMap((item, index) => item.definitionId === definitionId && item.tier === tier
-    ? [{ storage: "grid" as const, index, id: item.id, definitionId: item.definitionId, tier: item.tier, position: item.position ? { ...item.position } : null }]
-    : []);
-  grid.sort((left, right) => compareGridPositions(left.position, right.position) || left.index - right.index);
-  const queue = pendingRewards.flatMap((item, index) => item.definitionId === definitionId && item.tier === tier
-    ? [{ storage: "queue" as const, index, id: item.id, definitionId: item.definitionId, tier: item.tier, position: null }]
-    : []);
-  return [...grid, ...queue];
-}
-function updateLocatedTier(gridItems: GridItem[], pendingRewards: PendingReward[], located: LocatedInventoryItem, tier: Tier): void {
-  const item = (located.storage === "grid" ? gridItems : pendingRewards).find((entry) => entry.id === located.id);
-  if (item) item.tier = tier;
-}
-function removeLocatedItem(gridItems: GridItem[], pendingRewards: PendingReward[], located: LocatedInventoryItem): void {
-  const collection = located.storage === "grid" ? gridItems : pendingRewards;
-  const index = collection.findIndex((entry) => entry.id === located.id);
-  if (index >= 0) collection.splice(index, 1);
 }
 export function isKnownItemId(value: string): value is ItemId { return value in ITEM_DEFINITIONS; }

@@ -186,6 +186,28 @@ test("combat rendering is throttled and static phases repaint only when dirty", 
   assert.match(engine, /const SNAPSHOT_INTERVAL = 0\.2/);
 });
 
+test("manual merging and named equipment combos replace automatic merging", async () => {
+  const [client, inventory, shop, combos, data, renderer] = await Promise.all([
+    readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/inventory.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/shop.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/combos.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/render.ts", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(client + shop + inventory, /autoMergeInventory|자동 합성/);
+  assert.match(inventory, /mergeInventoryItems/);
+  assert.match(shop, /placeRewardInFirstEmptyCell\(gridItems, pending/);
+  assert.match(combos, /EQUIPMENT_COMBOS/);
+  assert.equal((combos.match(/id: "/g) ?? []).length, 12);
+  assert.match(data, /id: "shield"/);
+  assert.match(data, /id: "spellbook"/);
+  assert.match(client, /활성 조합:/);
+  assert.match(client, /조합식:/);
+  assert.match(renderer, /effect\.kind === "barrier"/);
+  assert.match(renderer, /effect\.kind === "combo"/);
+});
+
 test("keeps Sites metadata and the production build entrypoints", async () => {
   const [page, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

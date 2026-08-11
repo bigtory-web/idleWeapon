@@ -17,7 +17,6 @@ import {
 import { CombatEngine, ENEMY_SPAWN_INTERVAL } from "../lib/game/engine";
 import { getAllyDeployPosition, getBattleCellPosition } from "../lib/game/battle-layout";
 import {
-  autoMergeInventory,
   canPlaceItem,
   deriveSpawnerBlueprints,
   dropItemOnGrid,
@@ -31,6 +30,7 @@ import {
   placeRewardInFirstEmptyCell,
   rotateGridItem,
 } from "../lib/game/inventory";
+import { EQUIPMENT_COMBOS, getActiveEquipmentCombos } from "../lib/game/combos";
 import { createSeededRng, normalizeSeed } from "../lib/game/rng";
 import { getSpawnArrivalProgress, projectBattlePoint } from "../lib/game/render";
 import { getScaledFrameSteps, normalizeBattleSpeed } from "../lib/game/speed";
@@ -61,9 +61,9 @@ test("data keeps combat stats while characters use one cell and enemies keep the
   assert.deepEqual(CHARACTERS.sharpshooter.footprint, [{ row: 0, col: 0 }]);
   assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 4, 2: 6, 3: 9 });
   assert.deepEqual(CHARACTERS.sharpshooter.squadCaps, { 1: 2, 2: 3, 3: 5 });
-  assert.deepEqual(Object.values(WEAPONS).map(({ footprint }) => footprint.length), [2, 3, 3, 2]);
+  assert.deepEqual(Object.values(WEAPONS).map(({ footprint }) => footprint.length), [2, 3, 3, 2, 2, 2]);
   assert.deepEqual(Object.values(WEAPONS).map(({ damage, cooldown, range }) => [damage, cooldown, range]), [
-    [13, 0.7, 28], [10, 0.9, 180], [24, 1.4, 32], [8, 1, 150],
+    [13, 0.7, 28], [10, 0.9, 180], [24, 1.4, 32], [8, 1, 150], [5, 1.2, 27], [7, 1.2, 135],
   ]);
   assert.deepEqual(WEAPON_DAMAGE_MULTIPLIER, { 1: 1, 2: 1.7, 3: 2.7 });
   assert.equal(WEAPONS.sword.equipPenalty?.moveSpeedMultiplier, 0.94);
@@ -161,7 +161,7 @@ test("shop offers are deterministic and mix character and weapon items", () => {
   assert.equal(first.some(({ definitionId }) => definitionId in WEAPONS), true);
 });
 
-test("shop merges before footprint placement and supports a full backpack merge", () => {
+test("shop purchases always occupy a separate footprint and reject a full backpack", () => {
   const offer: ShopOffer = { id: "shop-1-sword", waveIndex: 1, definitionId: "sword", tier: 1, price: 5, purchased: false };
   assert.equal(purchaseShopOffer([], 4, offer).reason, "not-enough-gold");
   const full = [item("existing-sword", "sword", 0, 0)];
@@ -169,9 +169,16 @@ test("shop merges before footprint placement and supports a full backpack merge"
     full.push(item(`full-${index}`, (["shieldbearer", "scout", "sharpshooter"] as ItemId[])[index % 3]!, Math.floor(index / 7), index % 7, 3));
   }
   const result = purchaseShopOffer(full, 8, offer);
-  assert.equal(result.success, true);
-  assert.equal(result.gold, 3);
-  assert.equal(result.gridItems.find(({ id }) => id === "existing-sword")?.tier, 2);
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "grid-full");
+  assert.equal(result.gold, 8);
+  assert.equal(result.gridItems.find(({ id }) => id === "existing-sword")?.tier, 1);
+
+  const placed = purchaseShopOffer([item("existing-sword", "sword", 0, 0)], 8, offer);
+  assert.equal(placed.success, true);
+  assert.equal(placed.gold, 3);
+  assert.equal(placed.gridItems.length, 2);
+  assert.equal(placed.gridItems.every(({ tier }) => tier === 1), true);
 });
 
 test("row-major placement keeps newly acquired weapons in their default direction", () => {
@@ -197,18 +204,67 @@ test("different footprints swap only when both anchors remain valid", () => {
   assert.equal(blocked.moved, false);
 });
 
-test("all item kinds auto-chain merge and keep row-major position and rotation", () => {
+test("weapons and characters merge only when directly dropped on an identical tier", () => {
+  const weapons = [item("source", "sword", 0, 0), item("target", "sword", 2, 2), item("third", "sword", 4, 0)];
+  const mergedWeapon = dropItemOnGrid({ gridItems: weapons, pendingRewards: [] }, "source", { row: 2, col: 2 });
+  assert.equal(mergedWeapon.success, true);
+  assert.equal(mergedWeapon.action, "merged");
+  assert.equal(mergedWeapon.gridItems.length, 2);
+  assert.equal(mergedWeapon.gridItems.find(({ id }) => id === "target")?.tier, 2);
+  assert.equal(mergedWeapon.gridItems.find(({ id }) => id === "third")?.tier, 1);
+
+  const characters = [item("scout-a", "scout", 0, 0), item("scout-b", "scout", 2, 2)];
+  const mergedCharacter = dropItemOnGrid({ gridItems: characters, pendingRewards: [] }, "scout-a", { row: 2, col: 2 });
+  assert.equal(mergedCharacter.action, "merged");
+  assert.equal(mergedCharacter.gridItems[0]?.tier, 2);
+  assert.notEqual(dropItemOnGrid({ gridItems: [item("s", "sword", 0, 0), item("b", "bow", 2, 2)], pendingRewards: [] }, "s", { row: 2, col: 2 }).action, "merged");
+});
+
+test("twelve named recipes activate once while duplicate equipment uses its own recipe", () => {
+  assert.equal(EQUIPMENT_COMBOS.length, 12);
+  const combos = getActiveEquipmentCombos([
+    { weaponId: "sword" }, { weaponId: "sword" }, { weaponId: "shield" }, { weaponId: "spellbook" },
+  ]).map(({ id }) => id);
+  assert.deepEqual(combos, ["dual-blades", "vanguard", "arcane-aegis", "spellblade"]);
+  assert.equal(new Set(combos).size, combos.length);
+});
+
+test("adjacent equipment writes every active combo into the spawner blueprint", () => {
   const grid = [
-    item("later", "scout", 2, 4), item("first", "scout", 0, 2),
-    item("bow-a", "bow", 3, 0, 1, 0), item("bow-b", "bow", 0, 3, 1, 90),
+    item("hero", "shieldbearer", 2, 3),
+    item("sword", "sword", 2, 1),
+    item("shield", "shield", 1, 4),
+    item("book", "spellbook", 3, 2),
   ];
-  const merged = autoMergeInventory(grid, [reward("queue-a", "scout"), reward("queue-b", "scout")]);
-  assert.equal(merged.gridItems.find(({ id }) => id === "first")?.tier, 3);
-  assert.deepEqual(merged.gridItems.find(({ id }) => id === "first")?.position, { row: 0, col: 2 });
-  assert.equal(merged.gridItems.find(({ id }) => id === "bow-b")?.tier, 2);
-  assert.equal(merged.gridItems.find(({ id }) => id === "bow-b")?.rotation, 90);
-  assert.equal(merged.pendingRewards.length, 0);
-  assert.equal(merged.merges.filter(({ kind }) => kind === "character").length, 3);
+  const blueprint = deriveSpawnerBlueprints(grid)[0]!;
+  assert.deepEqual(blueprint.weapons.map(({ weaponId }) => weaponId), ["shield", "sword", "spellbook"]);
+  assert.deepEqual(blueprint.activeCombos, ["vanguard", "arcane-aegis", "spellblade"]);
+});
+
+test("arcane aegis creates a visible shield and formation movement preserves the home row", () => {
+  const engine = new CombatEngine();
+  engine.startWave({
+    waveIndex: 1,
+    seed: "combo-formation",
+    baseHp: 100,
+    spawners: [{
+      id: "combo-hero", characterId: "shieldbearer", tier: 1, row: 0, col: 1, maxActive: 1,
+      weapons: [
+        { sourceItemId: "shield", weaponId: "shield", tier: 1, direction: "left" },
+        { sourceItemId: "book", weaponId: "spellbook", tier: 1, direction: "right" },
+      ],
+      activeCombos: ["arcane-aegis"],
+    }],
+    wave: { index: 1, name: "combo", timeLimit: 30, clearGold: 0, groups: [{ at: 0, enemies: [{ enemyId: "armored", count: 1 }] }] },
+  });
+  (engine as unknown as { spawners: Array<{ cooldown: number }> }).spawners[0]!.cooldown = 0;
+  stepFor(engine, 1.2);
+  const ally = engine.getSnapshot().allies[0]!;
+  assert.equal(ally.activeCombos?.includes("arcane-aegis"), true);
+  assert.equal((ally.shield ?? 0) > 0, true);
+  assert.equal(ally.homeRow, 0);
+  assert.equal(Math.abs(ally.y - 230) < 14, true);
+  engine.dispose();
 });
 
 test("spawners wait a full cooldown, report progress, and stop at squad capacity", () => {

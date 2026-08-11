@@ -14,7 +14,11 @@ export type GamePhase =
   | "defeat";
 
 export type CharacterId = "shieldbearer" | "scout" | "sharpshooter";
-export type WeaponId = "sword" | "bow" | "hammer" | "wand";
+export type WeaponId = "sword" | "bow" | "hammer" | "wand" | "shield" | "spellbook";
+export type CombatRole = "guard" | "flanker" | "marksman";
+export type EquipmentComboId =
+  | "dual-blades" | "rapid-bow" | "earthshaker" | "overcharge" | "fortress" | "grand-grimoire"
+  | "vanguard" | "arcane-aegis" | "spellblade" | "arcane-arrow" | "ironbreaker" | "archmage";
 export type EnemyId = "grunt" | "runner" | "armored" | "thrower" | "boss";
 export type ItemId = CharacterId | WeaponId;
 export type ItemKind = "character" | "weapon";
@@ -52,6 +56,7 @@ export interface CharacterDefinition extends ItemDefinitionBase {
   rangedDamageMultiplier: number;
   rangeMultiplier: number;
   squadCaps: Record<Tier, number>;
+  combatRole: CombatRole;
   /** Fixed backpack footprint. Characters cannot be rotated. */
   footprint: FootprintCell[];
 }
@@ -75,6 +80,7 @@ export interface WeaponDefinition extends ItemDefinitionBase {
   attackKind: WeaponAttackKind;
   maxTargets: number;
   ranged: boolean;
+  targetPolicy?: "nearest" | "lowest-hp" | "densest" | "best-chain";
   secondaryDamageMultiplier?: number;
   effectRadius?: number;
   equipPenalty?: EquipPenalty;
@@ -146,6 +152,7 @@ export interface SpawnerBlueprint {
   col: number;
   maxActive: number;
   weapons: EquippedWeaponSnapshot[];
+  activeCombos?: EquipmentComboId[];
 }
 
 export interface WaveEnemyCount {
@@ -191,6 +198,7 @@ export interface SpawnerStatusView {
   row: number;
   col: number;
   weapons: EquippedWeaponSnapshot[];
+  activeCombos: EquipmentComboId[];
   cooldownRemaining: number;
   cooldownDuration: number;
   progress: number;
@@ -214,6 +222,10 @@ export interface CombatUnitView {
   isStructure?: boolean;
   flash: number;
   spawnGlow: number;
+  homeRow?: number;
+  shield?: number;
+  maxShield?: number;
+  activeCombos?: EquipmentComboId[];
   weapons?: CombatWeaponView[];
 }
 
@@ -231,12 +243,13 @@ export interface ProjectileView {
 
 export interface CombatEffectView {
   id: string;
-  kind: "spawn" | "hit" | "damage" | "slash" | "smash";
+  kind: "spawn" | "hit" | "damage" | "slash" | "smash" | "barrier" | "combo";
   x: number;
   y: number;
   life: number;
   maxLife: number;
   value?: number;
+  label?: string;
 }
 
 export interface CombatMetrics {

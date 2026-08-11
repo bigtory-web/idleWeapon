@@ -1,5 +1,5 @@
 import { CHARACTERS, ITEM_DEFINITIONS, REWARD_ITEM_IDS, WEAPONS } from "./data";
-import { autoMergeInventory, placeRewardInFirstEmptyCell } from "./inventory";
+import { placeRewardInFirstEmptyCell } from "./inventory";
 import { createSeededRng } from "./rng";
 import type { GridItem, ItemId, PendingReward, ShopOffer } from "./types";
 
@@ -48,21 +48,11 @@ export function purchaseShopOffer(
     tier: offer.tier,
   };
 
-  const merged = autoMergeInventory(gridItems, [pending]);
-  if (merged.pendingRewards.length === 0) {
-    return {
-      success: true,
-      gridItems: merged.gridItems,
-      gold: gold - offer.price,
-      merges: merged.merges.length,
-    };
-  }
-
-  const placed = placeRewardInFirstEmptyCell(merged.gridItems, merged.pendingRewards[0] as PendingReward, unlockedColumns);
+  const placed = placeRewardInFirstEmptyCell(gridItems, pending, unlockedColumns);
   if (!placed.success) {
     return { success: false, gridItems: cloneGrid(gridItems), gold, reason: "grid-full", merges: 0 };
   }
-  return { success: true, gridItems: placed.gridItems, gold: gold - offer.price, merges: merged.merges.length };
+  return { success: true, gridItems: placed.gridItems, gold: gold - offer.price, merges: 0 };
 }
 
 export function canPurchaseShopOffer(
