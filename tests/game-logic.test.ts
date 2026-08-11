@@ -29,7 +29,6 @@ import {
   moveGridItem,
   placeRewardInFirstEmptyCell,
   rotateGridItem,
-  reconcileEquipmentLinks,
 } from "../lib/game/inventory";
 import { createSeededRng, normalizeSeed } from "../lib/game/rng";
 import { generateShopOffers, purchaseShopOffer } from "../lib/game/shop";
@@ -47,17 +46,16 @@ function stepFor(engine: CombatEngine, seconds: number): void {
   for (let elapsed = 0; elapsed < seconds; elapsed += 0.25) engine.step(Math.min(0.25, seconds - elapsed));
 }
 
-test("data keeps combat stats while adding shapes, squad caps, and 1.5x enemy counts", () => {
+test("data keeps combat stats while characters use one cell and enemies keep their tuning", () => {
   assert.deepEqual([CHARACTERS.shieldbearer.hp, CHARACTERS.shieldbearer.moveSpeed, CHARACTERS.shieldbearer.spawnCooldown], [180, 34, 6]);
   assert.deepEqual([CHARACTERS.scout.hp, CHARACTERS.scout.moveSpeed, CHARACTERS.scout.spawnCooldown], [80, 52, 3.8]);
   assert.deepEqual([CHARACTERS.sharpshooter.hp, CHARACTERS.sharpshooter.moveSpeed, CHARACTERS.sharpshooter.spawnCooldown], [90, 38, 5.2]);
   assert.deepEqual(CHARACTER_HP_AND_POWER_MULTIPLIER, { 1: 1, 2: 1.6, 3: 2.4 });
   assert.deepEqual(CHARACTER_SPAWN_COOLDOWN_MULTIPLIER, { 1: 1, 2: 0.9, 3: 0.8 });
   assert.deepEqual(CHARACTERS.shieldbearer.squadCaps, { 1: 2, 2: 3, 3: 5 });
-  assert.deepEqual(CHARACTERS.shieldbearer.weaponSlots, { 1: 1, 2: 2, 3: 3 });
-  assert.deepEqual(CHARACTERS.shieldbearer.footprint, [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
+  assert.deepEqual(CHARACTERS.shieldbearer.footprint, [{ row: 0, col: 0 }]);
   assert.deepEqual(CHARACTERS.scout.footprint, [{ row: 0, col: 0 }]);
-  assert.deepEqual(CHARACTERS.sharpshooter.footprint, [{ row: 0, col: 0 }, { row: 1, col: 0 }]);
+  assert.deepEqual(CHARACTERS.sharpshooter.footprint, [{ row: 0, col: 0 }]);
   assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 4, 2: 6, 3: 9 });
   assert.deepEqual(CHARACTERS.sharpshooter.squadCaps, { 1: 2, 2: 3, 3: 5 });
   assert.deepEqual(Object.values(WEAPONS).map(({ footprint }) => footprint.length), [2, 3, 3, 2]);
@@ -77,8 +75,8 @@ test("data keeps combat stats while adding shapes, squad caps, and 1.5x enemy co
 });
 
 test("footprints rotate into normalized bounds and reject edges or overlap", () => {
-  assert.deepEqual(getRotatedItemGeometry("shieldbearer", 90).cells, [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
-  assert.deepEqual(getRotatedItemGeometry("sharpshooter", 90).cells, [{ row: 0, col: 0 }, { row: 1, col: 0 }]);
+  assert.deepEqual(getRotatedItemGeometry("shieldbearer", 90).cells, [{ row: 0, col: 0 }]);
+  assert.deepEqual(getRotatedItemGeometry("sharpshooter", 90).cells, [{ row: 0, col: 0 }]);
   assert.deepEqual(getRotatedItemGeometry("bow", 0).cells, [
     { row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 2 },
   ]);
@@ -115,12 +113,12 @@ test("sockets, not touching perimeter, determine loadouts and sharing", () => {
   assert.deepEqual(getCharactersSharingWeapon(sword, items).map(({ id }) => id), ["left", "right"]);
   assert.deepEqual(getAdjacentWeaponConnections(touchingNoSocket, items), []);
   assert.deepEqual(getAdjacentWeaponConnections(left, items).map(({ item: weapon, direction }) => [weapon.id, direction]), [["sword", "right"]]);
-  const wideShield = item("wide-shield", "shieldbearer", 1, 0);
-  const socketedSword = item("socketed-sword", "sword", 1, 2);
-  assert.deepEqual(getAdjacentWeaponConnections(wideShield, [wideShield, socketedSword]).map(({ item: weapon, characterCell }) => [weapon.id, characterCell]), [["socketed-sword", { row: 0, col: 1 }]]);
+  const shield = item("shield", "shieldbearer", 1, 0);
+  const socketedSword = item("socketed-sword", "sword", 1, 1);
+  assert.deepEqual(getAdjacentWeaponConnections(shield, [shield, socketedSword]).map(({ item: weapon, characterCell }) => [weapon.id, characterCell]), [["socketed-sword", { row: 0, col: 0 }]]);
 });
 
-test("starting inventory applies tier-one weapon slots to shared contacts", () => {
+test("starting inventory keeps both character-to-weapon contacts", () => {
   const blueprints = deriveSpawnerBlueprints(STARTING_INVENTORY);
   const shieldbearer = blueprints.find(({ characterId }) => characterId === "shieldbearer")!;
   const scout = blueprints.find(({ characterId }) => characterId === "scout")!;
@@ -129,21 +127,23 @@ test("starting inventory applies tier-one weapon slots to shared contacts", () =
   assert.deepEqual(shieldbearer.weapons, [
     { weaponId: "sword", tier: 1, direction: "right", sourceItemId: "start-sword" },
   ]);
-  assert.deepEqual(scout.weapons, [{ weaponId: "bow", tier: 1, direction: "right", sourceItemId: "start-bow" }]);
+  assert.deepEqual(scout.weapons, [
+    { weaponId: "bow", tier: 1, direction: "right", sourceItemId: "start-bow" },
+    { weaponId: "sword", tier: 1, direction: "left", sourceItemId: "start-sword" },
+  ]);
 });
 
-test("equipment links retain first contact order and expand with character tier", () => {
-  const scout = { ...STARTING_INVENTORY.find((entry) => entry.id === "start-scout")!, tier: 2 as Tier };
-  const items = STARTING_INVENTORY.map((entry) => entry.id === scout.id ? scout : entry);
-  const existing = [
-    { characterId: scout.id, weaponId: "start-sword", connectedAt: 1 },
-    { characterId: scout.id, weaponId: "start-bow", connectedAt: 2 },
+test("tier-one characters equip every physical socket contact", () => {
+  const character = item("center", "scout", 1, 2, 1);
+  const items = [
+    item("bow", "bow", 0, 1),
+    item("sword", "sword", 1, 0),
+    character,
+    item("wand", "wand", 1, 3),
+    item("hammer", "hammer", 2, 2),
   ];
-  assert.deepEqual(getActiveWeaponConnections(scout, items, existing).map(({ item: weapon }) => weapon.id), ["start-sword", "start-bow"]);
-  const tierOneScout = { ...scout, tier: 1 as Tier };
-  assert.deepEqual(getActiveWeaponConnections(tierOneScout, items.map((entry) => entry.id === scout.id ? tierOneScout : entry), existing).map(({ item: weapon }) => weapon.id), ["start-sword"]);
-  const reconnected = reconcileEquipmentLinks(items, [{ characterId: scout.id, weaponId: "start-bow", connectedAt: 4 }]);
-  assert.deepEqual(reconnected.filter((link) => link.characterId === scout.id).map((link) => [link.weaponId, link.connectedAt]), [["start-bow", 4], ["start-sword", 6]]);
+  assert.deepEqual(getActiveWeaponConnections(character, items).map(({ item: weapon }) => weapon.id), ["bow", "sword", "wand", "hammer"]);
+  assert.deepEqual(deriveSpawnerBlueprints(items)[0]?.weapons.map(({ sourceItemId }) => sourceItemId), ["bow", "sword", "wand", "hammer"]);
 });
 
 test("shop offers are deterministic and mix character and weapon items", () => {
@@ -247,6 +247,31 @@ test("unit cap leaves a ready spawner at 100 percent instead of discarding it", 
   assert.equal(spawner.activeCount, 0);
   assert.equal(spawner.progress, 1);
   assert.equal(spawner.state, "ready");
+  engine.dispose();
+});
+
+test("board rows and columns map to distinct allied deployment positions", () => {
+  const engine = new CombatEngine();
+  engine.startWave({
+    waveIndex: 1,
+    seed: "formation-map",
+    baseHp: 100,
+    spawners: [
+      { id: "back-top", characterId: "shieldbearer", tier: 1, row: 0, col: 0, maxActive: 1, weapons: [] },
+      { id: "front-bottom", characterId: "scout", tier: 1, row: 3, col: 5, maxActive: 1, weapons: [] },
+    ],
+    wave: { index: 1, name: "formation", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [] }] },
+  });
+  stepFor(engine, 6.25);
+  const snapshot = engine.getSnapshot();
+  const backTop = snapshot.allies.find(({ definitionId }) => definitionId === "shieldbearer")!;
+  const frontBottom = snapshot.allies.find(({ definitionId }) => definitionId === "scout")!;
+  assert.equal(backTop.x >= 55 && backTop.x <= 61, true);
+  assert.equal(backTop.y >= 227 && backTop.y <= 233, true);
+  assert.equal(frontBottom.x >= 135 && frontBottom.x <= 141, true);
+  assert.equal(frontBottom.y >= 287 && frontBottom.y <= 293, true);
+  assert.equal(frontBottom.x - backTop.x > 70, true);
+  assert.equal(frontBottom.y - backTop.y > 50, true);
   engine.dispose();
 });
 

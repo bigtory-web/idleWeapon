@@ -31,7 +31,6 @@ import {
   getWorldSockets,
   normalizeRotation,
   positionsEqual,
-  reconcileEquipmentLinks,
   rotateGridItem,
 } from "@/lib/game/inventory";
 import { renderBattle } from "@/lib/game/render";
@@ -46,12 +45,10 @@ import {
   type CombatMetrics,
   type CombatSnapshot,
   type Direction,
-  type EquipmentLink,
   type GamePhase,
   type GridItem,
   type GridPosition,
   type ItemDefinition,
-  type ItemId,
   type RunReport,
   type RunReportV2,
   type ShopOffer,
@@ -160,16 +157,6 @@ function itemStyle(definition: ItemDefinition, progress = 0): CSSProperties {
   } as CSSProperties;
 }
 
-function CharacterGlyph({ id }: { id: ItemId }) {
-  return (
-    <span className={`character-glyph character-glyph-${id}`} aria-hidden="true">
-      <span className="glyph-head" />
-      <span className="glyph-body" />
-      <span className="glyph-gear" />
-    </span>
-  );
-}
-
 export default function GameClient() {
   const engineRef = useRef<CombatEngine>(new CombatEngine());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -183,7 +170,6 @@ export default function GameClient() {
   const [waveCursor, setWaveCursor] = useState(0);
   const [seed, setSeed] = useState(DEFAULT_SEED);
   const [gridItems, setGridItems] = useState<GridItem[]>(cloneStartingInventory);
-  const [equipmentLinks, setEquipmentLinks] = useState<EquipmentLink[]>(() => reconcileEquipmentLinks(cloneStartingInventory(), []));
   const [snapshot, setSnapshot] = useState<CombatSnapshot>(() => createIdleSnapshot());
   const [gold, setGold] = useState(0);
   const [goldEarned, setGoldEarned] = useState(0);
@@ -195,6 +181,7 @@ export default function GameClient() {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [previewItemId, setPreviewItemId] = useState<string | null>(null);
+  const [selectedWeaponId, setSelectedWeaponId] = useState<string | null>(null);
   const [manualPaused, setManualPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>({ muted: false, reducedMotion: false });
@@ -203,7 +190,6 @@ export default function GameClient() {
 
   const phaseRef = useRef(phase);
   const gridRef = useRef(gridItems);
-  const equipmentLinksRef = useRef(equipmentLinks);
   const seedRef = useRef(seed);
   const snapshotRef = useRef(snapshot);
   const goldRef = useRef(gold);
@@ -215,7 +201,6 @@ export default function GameClient() {
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { gridRef.current = gridItems; }, [gridItems]);
-  useEffect(() => { equipmentLinksRef.current = equipmentLinks; }, [equipmentLinks]);
   useEffect(() => { seedRef.current = seed; }, [seed]);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
   useEffect(() => { goldRef.current = gold; }, [gold]);
@@ -256,11 +241,9 @@ export default function GameClient() {
 
   const commitInventory = useCallback((nextGridItems: GridItem[], autoMerge = true) => {
     const merged = autoMerge ? autoMergeInventory(nextGridItems, []) : { gridItems: nextGridItems, pendingRewards: [], merges: [] };
-    const nextLinks = reconcileEquipmentLinks(merged.gridItems, equipmentLinksRef.current);
     gridRef.current = merged.gridItems;
-    equipmentLinksRef.current = nextLinks;
     setGridItems(merged.gridItems);
-    setEquipmentLinks(nextLinks);
+    setSelectedWeaponId((current) => current && merged.gridItems.some((item) => item.id === current) ? current : null);
     return merged;
   }, []);
 
@@ -436,13 +419,10 @@ export default function GameClient() {
     if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
     engineRef.current.resume("manual");
     const fresh = cloneStartingInventory();
-    const freshLinks = reconcileEquipmentLinks(fresh, []);
     setSeed(nextSeed);
     seedRef.current = nextSeed;
     setGridItems(fresh);
     gridRef.current = fresh;
-    setEquipmentLinks(freshLinks);
-    equipmentLinksRef.current = freshLinks;
     setWaveCursor(0);
     setGold(0);
     goldRef.current = 0;
@@ -455,6 +435,7 @@ export default function GameClient() {
     setShopOffers([]);
     setSelectedOfferId(null);
     setPreviewItemId(null);
+    setSelectedWeaponId(null);
     setManualPaused(false);
     setReport(null);
     totalsRef.current = emptyMetrics();
@@ -469,7 +450,7 @@ export default function GameClient() {
 
   const startWave = useCallback(() => {
     const wave = WAVE_DEFINITIONS[waveCursor];
-    const spawners = deriveSpawnerBlueprints(gridRef.current, equipmentLinksRef.current);
+    const spawners = deriveSpawnerBlueprints(gridRef.current);
     if (!wave || spawners.length === 0) {
       showToast("가방에 캐릭터를 한 명 이상 배치해 주세요.", "warning");
       return;
@@ -600,6 +581,9 @@ export default function GameClient() {
       const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-target]");
       const finalTarget = element?.dataset.dropTarget ?? dropTargetRef.current;
       completeDrop(current.id, finalTarget, current.grabRow, current.grabCol);
+    } else if (event.pointerType === "mouse") {
+      const item = gridRef.current.find((entry) => entry.id === current.id);
+      setSelectedWeaponId(item && !isCharacterId(item.definitionId) ? item.id : null);
     } else if (event.pointerType !== "mouse") {
       setPreviewItemId((selected) => selected === current.id ? null : current.id);
     }
@@ -642,12 +626,12 @@ export default function GameClient() {
     if (result.success) applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
   }, [applyInventory, showToast]);
 
-  const rotateSelectedItem = useCallback(() => {
-    if (!previewItemId || inventoryLocked) return;
-    const rotated = rotateGridItem(gridRef.current, previewItemId);
+  const rotateSelectedWeapon = useCallback(() => {
+    if (!selectedWeaponId || inventoryLocked) return;
+    const rotated = rotateGridItem(gridRef.current, selectedWeaponId);
     if (rotated.moved) applyInventory(rotated.items);
     else showToast("이 위치에서는 회전할 수 없어요.", "warning");
-  }, [applyInventory, inventoryLocked, previewItemId, showToast]);
+  }, [applyInventory, inventoryLocked, selectedWeaponId, showToast]);
 
   const renderItem = (item: GridItem, options: { dragGhost?: boolean } = {}) => {
     const dragGhost = options.dragGhost ?? false;
@@ -655,15 +639,14 @@ export default function GameClient() {
     const isCharacter = definition.kind === "character";
     const geometry = getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation));
     const adjacentConnections = isCharacter ? getAdjacentWeaponConnections(item, gridItems) : [];
-    const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems, equipmentLinks) : [];
-    const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems, equipmentLinks);
+    const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems) : [];
+    const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems);
     const connectionMarks = isCharacter
       ? adjacentConnections.map(({ direction, item: weapon, characterCell }) => ({
           direction,
           row: characterCell.row,
           col: characterCell.col,
           key: `${direction}-${weapon.id}`,
-          active: activeConnections.some((connection) => connection.item.id === weapon.id),
         }))
       : getWorldSockets(item).flatMap((socket, index) => {
           const offsets: Record<Direction, [number, number]> = {
@@ -679,7 +662,6 @@ export default function GameClient() {
             row: socket.position.row - item.position.row,
             col: socket.position.col - item.position.col,
             key: `${socket.direction}-${index}`,
-            active: getActiveWeaponConnections(neighbor, gridItems, equipmentLinks).some(({ item: weapon }) => weapon.id === item.id),
           }];
         });
     const relationDetail = isCharacter
@@ -692,7 +674,7 @@ export default function GameClient() {
       ? `장착 무기: ${activeConnections.length ? activeConnections.map(({ item: weapon }) => ITEM_DEFINITIONS[weapon.definitionId].name).join(", ") : "맨손"}`
       : `공유 캐릭터 ${sharingCharacters.length}명`;
     const characterStats = isCharacter
-      ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초 · 무기 슬롯 ${definition.weaponSlots[item.tier]}개`
+      ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초`
       : "";
     const penaltyDetail = !isCharacter && definition.equipPenalty
       ? [
@@ -721,6 +703,7 @@ export default function GameClient() {
           activeConnections.length || sharingCharacters.length ? "linked-active" : "",
           !dragGhost && drag?.id === item.id ? "dragging" : "",
           !dragGhost && previewItemId === item.id ? "previewing" : "",
+          !dragGhost && selectedWeaponId === item.id ? "rotation-selected" : "",
           !dragGhost && spawnFlashIds.has(item.id) ? "spawn-linked-flash" : "",
         ].filter(Boolean).join(" ")}
         style={layoutStyle}
@@ -737,6 +720,7 @@ export default function GameClient() {
         onMouseEnter={dragGhost ? undefined : () => setPreviewItemId(item.id)}
         onMouseLeave={dragGhost ? undefined : () => setPreviewItemId((current) => current === item.id ? null : current)}
         onFocus={dragGhost ? undefined : () => setPreviewItemId(item.id)}
+        onBlur={dragGhost ? undefined : () => setPreviewItemId((current) => current === item.id ? null : current)}
         onKeyDown={dragGhost ? undefined : (event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
@@ -753,11 +737,12 @@ export default function GameClient() {
             aria-hidden="true"
           >{connectionMarks.filter((mark) => mark.row === cell.row && mark.col === cell.col).map((mark) => <span
             key={mark.key}
-            className={`connection-mark connection-${mark.direction} ${mark.active ? "connection-active" : "connection-inactive"}`}
+            className={`connection-mark connection-${mark.direction} connection-active`}
           >○</span>)}</span>)}
           {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
-          <span className="item-icon">{isCharacter ? <CharacterGlyph id={item.definitionId} /> : definition.icon}</span>
-          {isCharacter && activeConnections.slice(0, 3).map(({ item: weapon }, index) => <span key={weapon.id} className={`equipped-weapon-mini equipped-weapon-mini-${index}`} aria-hidden="true">{ITEM_DEFINITIONS[weapon.definitionId].icon}</span>)}
+          <span className="item-icon">{definition.icon}</span>
+          {isCharacter && <span className="character-name-mini" aria-hidden="true">{definition.name}</span>}
+          {isCharacter && activeConnections.map(({ item: weapon }, index) => <span key={weapon.id} className={`equipped-weapon-mini equipped-weapon-mini-${index}`} aria-hidden="true">{ITEM_DEFINITIONS[weapon.definitionId].icon}</span>)}
           {!dragGhost && <span id={detailId} className="inventory-item-details" role="tooltip">
             <strong>{definition.name} · T{item.tier}</strong>
             <span>{definition.description}</span>
@@ -791,23 +776,12 @@ export default function GameClient() {
     return { cells: getOccupiedCells(item, position), valid: result.success };
   })();
 
-  const selectedInventoryItem = previewItemId
-    ? gridItems.find((item) => item.id === previewItemId) ?? null
+  const selectedRotationItem = selectedWeaponId
+    ? gridItems.find((item) => item.id === selectedWeaponId && !isCharacterId(item.definitionId)) ?? null
     : null;
-  const selectedDefinition = selectedInventoryItem ? ITEM_DEFINITIONS[selectedInventoryItem.definitionId] : null;
-  const selectedConnections = selectedInventoryItem && selectedDefinition?.kind === "character"
-    ? getActiveWeaponConnections(selectedInventoryItem, gridItems, equipmentLinks)
-    : [];
-  const selectedPhysicalConnections = selectedInventoryItem && selectedDefinition?.kind === "character"
-    ? getAdjacentWeaponConnections(selectedInventoryItem, gridItems)
-    : [];
-  const selectedPhysicalCharacters = selectedInventoryItem && selectedDefinition?.kind === "weapon"
-    ? gridItems.filter((item) => isCharacterId(item.definitionId)
-      && getAdjacentWeaponConnections(item, gridItems).some(({ item: weapon }) => weapon.id === selectedInventoryItem.id))
-    : [];
-  const selectedEquippedCharacters = selectedInventoryItem && selectedDefinition?.kind === "weapon"
-    ? getCharactersSharingWeapon(selectedInventoryItem, gridItems, equipmentLinks)
-    : [];
+  const selectedRotationDefinition = selectedRotationItem
+    ? ITEM_DEFINITIONS[selectedRotationItem.definitionId]
+    : null;
   const openSocketTargets = new Set(gridItems.flatMap((item) => getWorldSockets(item).flatMap((socket) => {
     const offsets: Record<Direction, [number, number]> = {
       up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
@@ -843,7 +817,7 @@ export default function GameClient() {
           {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay">
             <div className="battle-overlay-card">
               <strong>{phase === "preparation" ? `웨이브 ${currentWave?.index ?? 1}` : phase === "transition" ? "웨이브 완료" : "일시정지"}</strong>
-              <p>{phase === "preparation" ? "○가 향한 칸에 캐릭터를 맞대세요. T1은 무기 1개, T2는 2개, T3는 3개까지 장착돼요." : phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>
+              <p>{phase === "preparation" ? "○가 향한 칸에 캐릭터를 맞대세요. 닿은 무기는 티어와 관계없이 모두 장착돼요." : phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>
               {phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>웨이브 시작</button>}
             </div>
           </div>}
@@ -863,12 +837,12 @@ export default function GameClient() {
                   disabled={offer.purchased}
                   onClick={() => setSelectedOfferId(offer.id)}
                 >
-                  <span className="shop-icon">{isCharacterId(offer.definitionId) ? <CharacterGlyph id={offer.definitionId} /> : definition.icon}</span>
+                  <span className="shop-icon">{definition.icon}</span>
                   <strong>{definition.name}</strong>
                   <span className="shop-price">{offer.purchased ? "구매 완료" : `● ${offer.price}`}</span>
                   <span className="shop-card-details" role="tooltip">
                     <span>{definition.description}</span>
-                    {definition.kind === "character" && <span className="shop-stat-detail">HP {definition.hp} · 이동 {definition.moveSpeed} · 생성 {definition.spawnCooldown.toFixed(1)}초 · 무기 슬롯 {definition.weaponSlots[offer.tier]}개</span>}
+                    {definition.kind === "character" && <span className="shop-stat-detail">HP {definition.hp} · 이동 {definition.moveSpeed} · 생성 {definition.spawnCooldown.toFixed(1)}초</span>}
                     {definition.kind === "weapon" && definition.equipPenalty && <span className="shop-penalty-detail">장착 패널티: {definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}</span>}
                   </span>
                 </button>;
@@ -910,22 +884,15 @@ export default function GameClient() {
               })}
             </div>
           </div>
-          {selectedInventoryItem && selectedDefinition && <article className="selected-detail-panel" aria-live="polite">
-            <div className={`selected-detail-icon tier-${selectedInventoryItem.tier}`}>{selectedDefinition.kind === "character" ? <CharacterGlyph id={selectedDefinition.id} /> : selectedDefinition.icon}</div>
-            <div className="selected-detail-copy">
-              <strong>{selectedDefinition.name}</strong>
-              <p>{selectedDefinition.description}</p>
-              {selectedDefinition.kind === "character"
-                ? <span>HP {selectedDefinition.hp} · 이동 {selectedDefinition.moveSpeed} · 생성 {selectedDefinition.spawnCooldown.toFixed(1)}초 · 연결 {selectedPhysicalConnections.length} · 장착 {selectedConnections.length}/{selectedDefinition.weaponSlots[selectedInventoryItem.tier]} (청록) · 초과는 회색</span>
-                : <span>피해 {selectedDefinition.damage} · 사거리 {selectedDefinition.range} · 쿨타임 {selectedDefinition.cooldown.toFixed(1)}초 · 연결 {selectedPhysicalCharacters.length} · 장착 {selectedEquippedCharacters.length}명 (청록) · 초과는 회색{selectedDefinition.equipPenalty?.hpMultiplier ? ` · 체력 -${Math.round((1 - selectedDefinition.equipPenalty.hpMultiplier) * 100)}%` : ""}{selectedDefinition.equipPenalty?.moveSpeedMultiplier ? ` · 이동 -${Math.round((1 - selectedDefinition.equipPenalty.moveSpeedMultiplier) * 100)}%` : ""}</span>}
-              {selectedDefinition.kind === "weapon" && !inventoryLocked && <button
-                type="button"
-                className="rotate-item-button selected-detail-action"
-                onClick={rotateSelectedItem}
-                aria-label={`${selectedDefinition.name} 90도 회전`}
-              >↻ 회전</button>}
-            </div>
-          </article>}
+          {selectedRotationItem && selectedRotationDefinition && !inventoryLocked && <div className="inventory-action-row" aria-live="polite">
+            <span>{selectedRotationDefinition.name} 선택됨</span>
+            <button
+              type="button"
+              className="rotate-item-button"
+              onClick={rotateSelectedWeapon}
+              aria-label={`${selectedRotationDefinition.name} 90도 회전`}
+            >↻ 회전</button>
+          </div>}
         </section>
 
         <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone === "normal" ? "" : toast.tone}`}>{toast.copy}</div>)}</div>

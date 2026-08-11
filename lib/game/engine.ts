@@ -25,7 +25,10 @@ import type {
  */
 
 const LOGICAL_WIDTH = 390;
-const ALLY_SPAWN_X = 62;
+const ALLY_DEPLOY_X_MIN = 58;
+const ALLY_DEPLOY_X_STEP = 16;
+const ALLY_DEPLOY_Y_MIN = 230;
+const ALLY_DEPLOY_Y_STEP = 20;
 const ENEMY_SPAWN_X = 354;
 const BASE_X = 29;
 const UNIT_CAP = MAX_UNITS;
@@ -826,7 +829,7 @@ export class CombatEngine {
       };
     }, { hpMultiplier: 1, moveSpeedMultiplier: 1 });
     const maxHp = definition.hp * CHARACTER_HP_AND_POWER_MULTIPLIER[tier] * penalty.hpMultiplier;
-    const y = this.allyLane(blueprint.row, blueprint.col);
+    const spawn = this.allySpawnPosition(blueprint.row, blueprint.col);
     this.allies.push({
       id: this.nextId("ally"),
       side: "ally",
@@ -834,8 +837,8 @@ export class CombatEngine {
       definitionId: definition.id,
       name: definition.name,
       tier,
-      x: ALLY_SPAWN_X + this.random.between(-3, 3),
-      y,
+      x: spawn.x,
+      y: spawn.y,
       hp: maxHp,
       maxHp,
       moveSpeed: definition.moveSpeed * penalty.moveSpeedMultiplier,
@@ -849,7 +852,7 @@ export class CombatEngine {
       rangeMultiplier: definition.rangeMultiplier ?? 1,
     });
     this.metrics.alliesSpawned[definition.id] = (this.metrics.alliesSpawned[definition.id] ?? 0) + 1;
-    this.addEffect("spawn", ALLY_SPAWN_X, y, 0.45);
+    this.addEffect("spawn", spawn.x, spawn.y, 0.45);
     this.emit({
       type: "ally-spawned",
       spawnerId: blueprint.id,
@@ -1005,9 +1008,13 @@ export class CombatEngine {
       ?? null;
   }
 
-  private allyLane(row: number, col: number): number {
-    const deterministicOffset = ((Math.round(row) * 7 + Math.round(col) * 11) % 7) - 3;
-    return 260 + deterministicOffset * 10 + this.random.between(-2.5, 2.5);
+  private allySpawnPosition(row: number, col: number): { x: number; y: number } {
+    const boardRow = clamp(Math.round(row), 0, 3);
+    const boardCol = clamp(Math.round(col), 0, 5);
+    return {
+      x: ALLY_DEPLOY_X_MIN + boardCol * ALLY_DEPLOY_X_STEP + this.random.between(-3, 3),
+      y: ALLY_DEPLOY_Y_MIN + boardRow * ALLY_DEPLOY_Y_STEP + this.random.between(-3, 3),
+    };
   }
 
   private enemyLane(ordinal: number): number {

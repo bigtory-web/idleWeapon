@@ -191,12 +191,12 @@ export interface ProjectedBattlePoint {
 /** Visual-only 2.5D projection. Combat continues to use the original X axis. */
 export function projectBattlePoint(x: number, y: number): ProjectedBattlePoint {
   const depth = clamp((y - 230) / 60, 0, 1);
-  const perspective = 0.88 + depth * 0.14;
+  const perspective = 0.86 + depth * 0.14;
   return {
     x: BATTLEFIELD_WIDTH / 2 + (x - BATTLEFIELD_WIDTH / 2) * perspective,
-    y: 194 + depth * 122,
+    y: 152 + depth * 174,
     depth,
-    scale: 0.624 + depth * 0.168,
+    scale: 0.55 + depth * 0.22,
   };
 }
 
@@ -298,35 +298,35 @@ function drawNightBattlefield(
 
   context.fillStyle = "#493578";
   context.beginPath();
-  context.moveTo(0, 171);
-  context.lineTo(38, 142);
-  context.lineTo(74, 149);
-  context.lineTo(109, 116);
-  context.lineTo(151, 132);
-  context.lineTo(186, 102);
-  context.lineTo(226, 142);
-  context.lineTo(271, 128);
-  context.lineTo(310, 148);
-  context.lineTo(351, 111);
-  context.lineTo(width, 137);
-  context.lineTo(width, 226);
-  context.lineTo(0, 226);
+  context.moveTo(0, 135);
+  context.lineTo(38, 106);
+  context.lineTo(74, 113);
+  context.lineTo(109, 80);
+  context.lineTo(151, 96);
+  context.lineTo(186, 66);
+  context.lineTo(226, 106);
+  context.lineTo(271, 92);
+  context.lineTo(310, 112);
+  context.lineTo(351, 75);
+  context.lineTo(width, 101);
+  context.lineTo(width, 184);
+  context.lineTo(0, 184);
   context.closePath();
   context.fill();
 
   context.fillStyle = COLORS.farGround;
   context.beginPath();
-  context.moveTo(0, 211);
-  context.quadraticCurveTo(59, 180, 119, 205);
-  context.quadraticCurveTo(181, 225, 244, 190);
-  context.quadraticCurveTo(314, 164, width, 202);
+  context.moveTo(0, 171);
+  context.quadraticCurveTo(59, 140, 119, 165);
+  context.quadraticCurveTo(181, 185, 244, 150);
+  context.quadraticCurveTo(314, 124, width, 162);
   context.lineTo(width, 314);
   context.lineTo(0, 314);
   context.closePath();
   context.fill();
 
-  drawTree(context, 104, 199, 0.7);
-  drawTree(context, 285, 183, 0.9);
+  drawTree(context, 104, 159, 0.62);
+  drawTree(context, 285, 143, 0.78);
 
   const ground = context.createLinearGradient(0, 165, 0, height);
   ground.addColorStop(0, "#60478e");
@@ -334,8 +334,8 @@ function drawNightBattlefield(
   ground.addColorStop(1, "#21143b");
   context.fillStyle = ground;
   context.beginPath();
-  context.moveTo(52, 166);
-  context.lineTo(width - 52, 166);
+  context.moveTo(66, 122);
+  context.lineTo(width - 66, 122);
   context.lineTo(width, height);
   context.lineTo(0, height);
   context.closePath();
@@ -345,8 +345,8 @@ function drawNightBattlefield(
   context.lineWidth = 1;
   for (let index = 0; index < 7; index += 1) {
     const ratio = index / 6;
-    const y = 178 + ratio * 168;
-    const halfWidth = 150 + ratio * 45;
+    const y = 140 + ratio * 198;
+    const halfWidth = 136 + ratio * 59;
     context.beginPath();
     context.moveTo(195 - halfWidth, y);
     context.lineTo(195 + halfWidth, y);
@@ -354,7 +354,7 @@ function drawNightBattlefield(
   }
   for (let index = -4; index <= 4; index += 1) {
     context.beginPath();
-    context.moveTo(195 + index * 34, 166);
+    context.moveTo(195 + index * 28, 122);
     context.lineTo(195 + index * 70, height);
     context.stroke();
   }

@@ -53,8 +53,6 @@ export interface CharacterDefinition extends ItemDefinitionBase {
   rangedDamageMultiplier: number;
   rangeMultiplier: number;
   squadCaps: Record<Tier, number>;
-  /** Number of simultaneously equipped backpack weapons. */
-  weaponSlots: Record<Tier, number>;
   /** Fixed backpack footprint. Characters cannot be rotated. */
   footprint: FootprintCell[];
 }
@@ -118,13 +116,6 @@ export interface GridItem {
   position: GridPosition | null;
   rotation?: Rotation;
   sourceLevel?: number;
-}
-
-/** A physical character-to-weapon contact, ordered by when it was created. */
-export interface EquipmentLink {
-  characterId: string;
-  weaponId: string;
-  connectedAt: number;
 }
 
 export interface PendingReward {
