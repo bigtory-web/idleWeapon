@@ -16,6 +16,7 @@ export interface BattleRenderOptions {
   height?: number;
   reducedMotion?: boolean;
   showHealthBars?: boolean;
+  unlockedColumns?: number;
 }
 
 type Direction = "up" | "down" | "left" | "right";
@@ -219,7 +220,7 @@ export function projectBattlePoint(x: number, y: number): ProjectedBattlePoint {
   const depth = clamp((y - ALLY_DEPLOY_Y_MIN) / (ALLY_DEPLOY_Y_MAX - ALLY_DEPLOY_Y_MIN), 0, 1);
   return {
     x,
-    y: 150 + depth * 144,
+    y: 100 + depth * 180,
     depth,
     scale: 0.68,
   };
@@ -249,7 +250,7 @@ export function renderBattle(
   drawNightBattlefield(context, snapshot.elapsed, width, height);
 
   context.save();
-  drawDeploymentGrid(context);
+  drawDeploymentGrid(context, options.unlockedColumns ?? PLAYER_DEPLOY_COLUMNS);
   for (const spawner of snapshot.spawners) drawSpawnerPlatform(context, spawner);
   drawBase(context, snapshot);
   const projectedEffects = snapshot.effects.map((effect) => {
@@ -306,8 +307,9 @@ function drawNightBattlefield(
   ellipse(context, 318, 334, 74, 28, "rgba(0,0,0,.05)");
 }
 
-function drawDeploymentGrid(context: CanvasRenderingContext2D): void {
+function drawDeploymentGrid(context: CanvasRenderingContext2D, unlockedColumns: number): void {
   context.save();
+  const openColumns = clamp(Math.trunc(unlockedColumns), 0, PLAYER_DEPLOY_COLUMNS);
   for (let row = 0; row < GRID_ROWS; row += 1) {
     for (let col = 0; col < BATTLEFIELD_COLUMNS; col += 1) {
       const deploy = getBattleCellPosition(row, col);
@@ -322,9 +324,9 @@ function drawDeploymentGrid(context: CanvasRenderingContext2D): void {
       );
       const tileWidth = Math.abs(horizontalNeighbor.x - center.x) * 1.02;
       const tileHeight = Math.abs(verticalNeighbor.y - center.y) * 0.96;
-      const enemyZone = col >= PLAYER_DEPLOY_COLUMNS;
-      context.fillStyle = enemyZone ? "rgba(255,120,135,.1)" : "rgba(235,228,247,.14)";
-      context.strokeStyle = enemyZone ? "rgba(255,130,145,.28)" : "rgba(235,228,247,.24)";
+      const locked = col >= openColumns;
+      context.fillStyle = locked ? "rgba(255,72,96,.16)" : "rgba(235,228,247,.14)";
+      context.strokeStyle = locked ? "rgba(255,91,111,.46)" : "rgba(235,228,247,.24)";
       context.lineWidth = 1;
       roundedRectPath(context, center.x - tileWidth / 2, center.y - tileHeight / 2, tileWidth, tileHeight, 3);
       context.fill();

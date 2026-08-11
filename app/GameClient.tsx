@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -17,6 +18,7 @@ import {
   WAVE_DEFINITIONS,
   isCharacterId,
 } from "@/lib/game/data";
+import { getBattleCellPosition, getWaveOutpostObjectives } from "@/lib/game/battle-layout";
 import { CombatEngine } from "@/lib/game/engine";
 import {
   autoMergeInventory,
@@ -45,6 +47,7 @@ import {
   type BattleSpeed,
   type CombatMetrics,
   type CombatSnapshot,
+  type CombatUnitView,
   type GamePhase,
   type GridItem,
   type GridPosition,
@@ -135,6 +138,27 @@ function createIdleSnapshot(baseHp = BASE_HP): CombatSnapshot {
   };
 }
 
+function createOutpostPreview(waveIndex: number): CombatUnitView[] {
+  return getWaveOutpostObjectives(waveIndex).flatMap((objective) => objective.rows.map((row) => {
+    const position = getBattleCellPosition(row, objective.battleColumn);
+    return {
+      id: `preview-outpost-${objective.unlockColumn}-${row}`,
+      side: "enemy" as const,
+      definitionId: "outpost" as const,
+      name: "적 기지",
+      tier: 1 as const,
+      x: position.x,
+      y: position.y,
+      hp: objective.hp,
+      maxHp: objective.hp,
+      facing: -1 as const,
+      isStructure: true,
+      flash: 0,
+      spawnGlow: 0,
+    };
+  }));
+}
+
 function addRecord(target: Record<string, number>, source: Record<string, number>) {
   const next = { ...target };
   for (const [key, value] of Object.entries(source)) next[key] = (next[key] ?? 0) + value;
@@ -197,6 +221,7 @@ export default function GameClient() {
   const [unlockedColumns, setUnlockedColumns] = useState<number>(STARTING_UNLOCKED_COLUMNS);
 
   const phaseRef = useRef(phase);
+  const waveCursorRef = useRef(waveCursor);
   const gridRef = useRef(gridItems);
   const seedRef = useRef(seed);
   const snapshotRef = useRef(snapshot);
@@ -209,6 +234,7 @@ export default function GameClient() {
   const unlockedColumnsRef = useRef<number>(STARTING_UNLOCKED_COLUMNS);
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { waveCursorRef.current = waveCursor; }, [waveCursor]);
   useEffect(() => { gridRef.current = gridItems; }, [gridItems]);
   useEffect(() => { seedRef.current = seed; }, [seed]);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
@@ -400,6 +426,8 @@ export default function GameClient() {
       const context = canvas.getContext("2d");
       if (context) {
         const liveSnapshot = snapshotRef.current;
+        const previewingBoard = phaseRef.current === "preparation" || phaseRef.current === "shop";
+        const previewWaveIndex = WAVE_DEFINITIONS[waveCursorRef.current]?.index ?? 1;
         const renderSnapshot = phaseRef.current === "combat" ? liveSnapshot : {
           ...liveSnapshot,
           spawners: deriveSpawnerBlueprints(gridRef.current).map((blueprint) => ({
@@ -416,8 +444,14 @@ export default function GameClient() {
             maxActive: blueprint.maxActive,
             state: "ready" as const,
           })),
+          enemies: previewingBoard ? createOutpostPreview(previewWaveIndex) : liveSnapshot.enemies,
         };
-        renderBattle(context, renderSnapshot, { width: 390, height: 360, reducedMotion: settingsRef.current.reducedMotion });
+        renderBattle(context, renderSnapshot, {
+          width: 390,
+          height: 360,
+          reducedMotion: settingsRef.current.reducedMotion,
+          unlockedColumns: unlockedColumnsRef.current,
+        });
       }
       animationFrame = requestAnimationFrame(frame);
     };
@@ -791,11 +825,10 @@ export default function GameClient() {
         <section className="battle-panel" aria-label="자동 전투 화면">
           <div className="battle-canvas-wrap"><canvas ref={canvasRef} className="battle-canvas" aria-label="아군과 적군의 자동 전투" /><div className="battle-vignette" /></div>
 
-          {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay">
+          {(phase === "transition" || manualPaused) && <div className="battle-overlay">
             <div className="battle-overlay-card">
-              <strong>{phase === "preparation" ? `웨이브 ${currentWave?.index ?? 1}` : phase === "transition" ? "웨이브 완료" : "일시정지"}</strong>
-              {phase !== "preparation" && <p>{phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>}
-              {phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>전투 시작</button>}
+              <strong>{phase === "transition" ? "웨이브 완료" : "일시정지"}</strong>
+              <p>{phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>
             </div>
           </div>}
 
@@ -819,17 +852,22 @@ export default function GameClient() {
                 };
                 const showShopHelp = () => setHoverHelp(shopHelp);
                 const hideShopHelp = () => setHoverHelp((current) => current?.key === shopHelp.key ? null : current);
-                return <article
+                const blurShopHelp = (event: ReactFocusEvent<HTMLElement>) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hideShopHelp();
+                };
+                return <div
                   key={offer.id}
-                  className={`shop-card tier-${offer.tier} ${offer.purchased ? "purchased" : ""} ${!purchasable ? "unavailable" : ""}`}
+                  className={`shop-offer tier-${offer.tier} ${offer.purchased ? "purchased" : ""} ${!purchasable ? "unavailable" : ""}`}
                   style={itemStyle(definition)}
                   onMouseEnter={showShopHelp}
                   onMouseLeave={hideShopHelp}
                   onFocus={showShopHelp}
-                  onBlur={hideShopHelp}
+                  onBlur={blurShopHelp}
                 >
-                  <span className="shop-icon">{definition.icon}</span>
-                  <strong>{definition.name}</strong>
+                  <article className="shop-card" tabIndex={0}>
+                    <span className="shop-icon">{definition.icon}</span>
+                    <strong>{definition.name}</strong>
+                  </article>
                   <button
                     type="button"
                     className="shop-buy-button"
@@ -838,10 +876,9 @@ export default function GameClient() {
                     aria-describedby="fixed-hover-help"
                     onClick={() => buyOffer(offer.id)}
                   >{offer.purchased ? "완료" : `${offer.price}골드`}</button>
-                </article>;
+                </div>;
               })}
             </div>
-            <button type="button" className="primary-action shop-next-button" onClick={startWave}>전투 시작</button>
           </div>}
 
           {hoverHelp && <div id="fixed-hover-help" className="fixed-hover-help" role="tooltip">
@@ -855,6 +892,10 @@ export default function GameClient() {
           </div>}
         </section>
 
+        {(phase === "preparation" || phase === "shop") && <div className="battle-action-row">
+          <button type="button" className="primary-action battle-start-button" onClick={startWave}>전투 시작</button>
+        </div>}
+
         <section className="command-panel" aria-label="가방 편성">
           <div className="backpack-frame">
             <div className="inventory-grid">
@@ -865,7 +906,6 @@ export default function GameClient() {
                 const target = `grid:${position.row}:${position.col}`;
                 const previewed = dropPreview?.cells.some((cell) => positionsEqual(cell, position));
                 const locked = position.col >= unlockedColumns && position.col < PLAYER_DEPLOY_COLUMNS;
-                const permanentLocked = position.col >= PLAYER_DEPLOY_COLUMNS;
                 const outpostCell = locked
                   && (position.col === 3 || position.col === 5)
                   && (position.row === 1 || position.row === 3);
@@ -875,14 +915,13 @@ export default function GameClient() {
                     "grid-cell",
                     occupant ? "occupied-cell" : "",
                     locked ? "locked-cell" : "",
-                    permanentLocked ? "locked-cell permanent-locked-cell" : "",
                     outpostCell ? "locked-outpost-cell" : "",
                     previewed ? (dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
                   ].filter(Boolean).join(" ")}
-                  data-drop-target={!locked && !permanentLocked ? target : undefined}
+                  data-drop-target={!locked ? target : undefined}
                 >{item && renderItem(item)}{outpostCell
                     ? <span className="locked-outpost" aria-hidden="true">🏰</span>
-                    : (locked || permanentLocked) && <span className="cell-lock" aria-hidden="true">🔒</span>}</div>;
+                    : null}</div>;
               })}
             </div>
           </div>

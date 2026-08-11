@@ -1,6 +1,6 @@
-export const INVENTORY_COLUMNS = 8 as const;
+export const INVENTORY_COLUMNS = 7 as const;
 export const PLAYER_DEPLOY_COLUMNS = 7 as const;
-export const BATTLEFIELD_COLUMNS = 10 as const;
+export const BATTLEFIELD_COLUMNS = 7 as const;
 export const STARTING_UNLOCKED_COLUMNS = 3 as const;
 export const GRID_ROWS = 5 as const;
 
@@ -285,13 +285,14 @@ export interface CombatSnapshot {
 }
 
 export type DefeatReason = "base-destroyed" | "timeout";
+export type BoardUnlockColumn = 4 | 6;
 
 export type CombatEvent =
   | { type: "snapshot"; snapshot: CombatSnapshot }
   | { type: "hud"; hud: CombatHud }
   | { type: "ally-spawned"; spawnerId: string; weaponItemIds: string[] }
   | { type: "wave-cleared"; waveIndex: number; goldEarned: number; metrics: CombatMetrics }
-  | { type: "board-column-unlocked"; waveIndex: number; column: 4 | 6 }
+  | { type: "board-column-unlocked"; waveIndex: number; column: BoardUnlockColumn }
   | {
       type: "defeat";
       reason: DefeatReason;

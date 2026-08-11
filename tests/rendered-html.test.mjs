@@ -47,7 +47,7 @@ test("header speed, compact canvas base health, and direct-purchase shop replace
   assert.doesNotMatch(client, /playerXp|playerLevel|level-up|level-modal|reward-options|selectedOfferId/);
 });
 
-test("inventory uses a locked 42px 8x5 board, continuous footprints, adjacency help, and no socket marks", async () => {
+test("inventory uses a locked 42px 7x5 board, continuous footprints, adjacency help, and no socket marks", async () => {
   const [client, styles] = await Promise.all([
     readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -89,14 +89,14 @@ test("inventory uses a locked 42px 8x5 board, continuous footprints, adjacency h
   assert.match(styles, /\.item-segment\.edge-right/);
   assert.match(styles, /\.equipped-weapon-mini-3/);
   assert.match(styles, /--board-cell:\s*min\(42px/);
-  assert.match(styles, /grid-template-columns:\s*repeat\(8, var\(--board-cell\)\)/);
+  assert.match(styles, /grid-template-columns:\s*repeat\(7, var\(--board-cell\)\)/);
   assert.match(styles, /grid-template-rows:\s*repeat\(5, var\(--board-cell\)\)/);
   assert.doesNotMatch(styles, /\.inventory-grid \.grid-cell:nth-child\(odd\)/);
   assert.match(styles, /\.fixed-hover-help/);
   assert.match(client, /className="fixed-hover-sharing"/);
   assert.match(styles, /\.fixed-hover-sharing/);
   assert.match(client, /locked-cell/);
-  assert.match(client, /permanent-locked-cell/);
+  assert.doesNotMatch(client, /permanent-locked-cell|cell-lock|🔒/);
   assert.match(client, /className="locked-outpost"/);
   assert.doesNotMatch(client, /enemy-zone-cell|enemy-zone-mark|>♜</);
   assert.match(client, /phaseRef\.current === "combat" \? liveSnapshot/);
@@ -122,12 +122,14 @@ test("renderer uses an orthographic board projection and density limits", async 
   assert.match(renderer, /export function projectBattlePoint/);
   assert.match(renderer, /const scale = Math\.min\(context\.canvas\.width \/ width, context\.canvas\.height \/ height\)/);
   assert.match(renderer, /units\.length > 55/);
-  assert.match(renderer, /y:\s*150 \+ depth \* 144/);
+  assert.match(renderer, /y:\s*100 \+ depth \* 180/);
   assert.match(renderer, /scale:\s*0\.68/);
   assert.match(renderer, /x,\s*\n\s*y:/);
   assert.match(renderer, /ALLY_DEPLOY_Y_MAX - ALLY_DEPLOY_Y_MIN/);
   assert.match(renderer, /drawSpawnerPlatform/);
   assert.match(renderer, /drawDeploymentGrid/);
+  assert.match(renderer, /options\.unlockedColumns \?\? PLAYER_DEPLOY_COLUMNS/);
+  assert.match(renderer, /const locked = col >= openColumns/);
   assert.match(renderer, /BATTLEFIELD_COLUMNS/);
   assert.match(renderer, /PLAYER_DEPLOY_COLUMNS/);
   assert.match(renderer, /unit\.isStructure/);
@@ -142,6 +144,35 @@ test("renderer uses an orthographic board projection and density limits", async 
   assert.match(renderer, /#ff5d63/);
   assert.match(renderer, /#57d9dc/);
   assert.doesNotMatch(renderer, /context\.scale\(scaleX, scaleY\)/);
+});
+
+test("preparation and shop share one external battle button and shop prices sit outside cards", async () => {
+  const [client, styles] = await Promise.all([
+    readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(client, /\(phase === "preparation" \|\| phase === "shop"\)/);
+  assert.match(client, /className="battle-action-row"/);
+  assert.match(client, /className="primary-action battle-start-button"/);
+  assert.doesNotMatch(client, /overlay-start-button|shop-next-button/);
+  assert.match(client, /className=\{`shop-offer tier-\$\{offer\.tier\}/);
+  assert.match(client, /<article[\s\S]*className="shop-card"[\s\S]*<\/article>[\s\S]*className="shop-buy-button"/);
+  assert.match(styles, /\.shop-buy-button\s*\{[^}]*font-size:\s*13px/s);
+});
+
+test("wave-one outposts use shared bag and battlefield coordinates", async () => {
+  const [client, layout] = await Promise.all([
+    readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/battle-layout.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(layout, /battleColumn:\s*3/);
+  assert.match(layout, /battleColumn:\s*5/);
+  assert.match(layout, /rows:\s*\[1, 3\]/);
+  assert.match(layout, /hp:\s*90/);
+  assert.match(layout, /waveIndex === 1/);
+  assert.match(client, /createOutpostPreview/);
+  assert.match(client, /getWaveOutpostObjectives/);
+  assert.match(client, /getBattleCellPosition/);
 });
 
 test("keeps Sites metadata and the production build entrypoints", async () => {

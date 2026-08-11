@@ -463,12 +463,6 @@ textarea:focus-visible {
   line-height: 1.5;
 }
 
-.overlay-start-button {
-  width: 100%;
-  min-height: 40px;
-  margin-top: 12px;
-}
-
 .command-panel {
   position: relative;
   z-index: 10;
@@ -1464,7 +1458,7 @@ textarea:focus-visible {
   box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px rgba(94, 234, 212, .38);
 }
 
-.shop-card.purchased {
+.shop-offer.purchased {
   opacity: .45;
   cursor: default;
 }
@@ -1558,28 +1552,23 @@ textarea:focus-visible {
   color: #89818e;
 }
 
-.shop-next-button {
-  min-height: 38px;
-  margin-top: auto;
-}
-
 .item-card {
   overflow: hidden;
   border-color: #9da3ad;
 }
 
 .tier-1 .item-card,
-.shop-card.tier-1 {
+.shop-offer.tier-1 .shop-card {
   border-color: #aeb3bc;
 }
 
 .tier-2 .item-card,
-.shop-card.tier-2 {
+.shop-offer.tier-2 .shop-card {
   border-color: #5bc9ff;
 }
 
 .tier-3 .item-card,
-.shop-card.tier-3 {
+.shop-offer.tier-3 .shop-card {
   border-color: #ffd15e;
 }
 
@@ -1835,11 +1824,17 @@ textarea:focus-visible {
 
 .shop-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .shop-offers {
   align-self: center;
+}
+
+.shop-offer {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
 }
 
 .shop-heading > strong {
@@ -1851,12 +1846,12 @@ textarea:focus-visible {
 .shop-card {
   min-height: 126px;
   cursor: default;
-  grid-template-rows: 1fr auto auto;
+  grid-template-rows: 1fr auto;
   align-content: stretch;
-  padding: 8px 5px 6px;
+  padding: 10px 5px;
 }
 
-.shop-card.unavailable:not(.purchased) {
+.shop-offer.unavailable:not(.purchased) .shop-card {
   filter: saturate(.68);
 }
 
@@ -1873,7 +1868,7 @@ textarea:focus-visible {
   border-radius: 8px;
   background: linear-gradient(#ffd267, #e69a36);
   color: #3d230e;
-  font-size: 8px;
+  font-size: 13px;
   font-weight: 950;
   cursor: pointer;
 }
@@ -1891,15 +1886,11 @@ textarea:focus-visible {
   cursor: default;
 }
 
-.shop-next-button {
-  margin-top: 0;
-}
-
 .fixed-hover-help {
   position: absolute;
   z-index: 24;
   right: 12px;
-  bottom: 61px;
+  bottom: 12px;
   left: 12px;
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
@@ -1962,15 +1953,29 @@ textarea:focus-visible {
   align-items: center;
 }
 
+.battle-action-row {
+  z-index: 11;
+  flex: 0 0 56px;
+  padding: 7px 13px;
+  border-top: 1px solid rgba(255,255,255,.12);
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  background: #171027;
+}
+
+.battle-start-button {
+  width: 100%;
+  min-height: 42px;
+}
+
 .backpack-frame {
   width: auto;
   padding: 8px;
 }
 
 .inventory-grid {
-  --board-cell: min(42px, calc((100vw - 58px) / 8));
+  --board-cell: min(42px, calc((100vw - 54px) / 7));
   display: grid;
-  grid-template-columns: repeat(8, var(--board-cell));
+  grid-template-columns: repeat(7, var(--board-cell));
   grid-template-rows: repeat(5, var(--board-cell));
   gap: 4px;
   width: auto;
@@ -2027,21 +2032,8 @@ textarea:focus-visible {
 }
 
 .grid-cell.locked-cell {
-  border-color: rgba(174,160,194,.22);
-  background: repeating-linear-gradient(135deg, rgba(19,15,29,.9) 0 7px, rgba(48,40,62,.86) 7px 14px);
-}
-
-.grid-cell.permanent-locked-cell {
-  border-color: rgba(255,107,125,.32);
-  background: repeating-linear-gradient(135deg, rgba(37,25,43,.94) 0 7px, rgba(18,14,25,.94) 7px 14px);
-}
-
-.cell-lock,
-.locked-outpost {
-  color: rgba(228,216,239,.48);
-  font-size: 13px;
-  filter: grayscale(.35);
-  pointer-events: none;
+  border-color: rgba(255,91,111,.42);
+  background: repeating-linear-gradient(135deg, rgba(63,22,40,.88) 0 7px, rgba(31,15,31,.94) 7px 14px);
 }
 
 .locked-outpost-cell {
@@ -2050,9 +2042,11 @@ textarea:focus-visible {
 }
 
 .locked-outpost {
+  color: rgba(255,225,230,.92);
   font-size: 18px;
   filter: none;
   text-shadow: 0 0 8px rgba(255,107,125,.55);
+  pointer-events: none;
 }
 
 /* The footprint surface owns the complete item silhouette. Segment borders

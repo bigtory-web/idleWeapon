@@ -216,7 +216,7 @@ test("spawners wait a full cooldown, report progress, and stop at squad capacity
   const events: CombatEvent[] = [];
   engine.subscribe((event) => events.push(event));
   engine.startWave({
-    waveIndex: 1,
+    waveIndex: 2,
     seed: "spawner-test",
     baseHp: 100,
     spawners: deriveSpawnerBlueprints(STARTING_INVENTORY),
@@ -247,11 +247,11 @@ test("spawners wait a full cooldown, report progress, and stop at squad capacity
 test("unit cap preserves the pending enemy queue and resumes as soon as capacity opens", () => {
   const engine = new CombatEngine({ unitCap: 2 });
   engine.startWave({
-    waveIndex: 1,
+    waveIndex: 2,
     seed: "cap-test",
     baseHp: 100,
     spawners: [],
-    wave: { index: 1, name: "cap", timeLimit: 60, clearGold: 8, groups: [{ at: 0, enemies: [{ enemyId: "armored", count: 4 }] }] },
+    wave: { index: 2, name: "cap", timeLimit: 60, clearGold: 8, groups: [{ at: 0, enemies: [{ enemyId: "armored", count: 4 }] }] },
   });
   stepFor(engine, 1);
   assert.equal(engine.getSnapshot().enemies.length, 2);
@@ -264,12 +264,12 @@ test("unit cap preserves the pending enemy queue and resumes as soon as capacity
 test("all normal wave groups flatten into a deterministic 0.15 second spawn queue", () => {
   const engine = new CombatEngine();
   engine.startWave({
-    waveIndex: 1,
+    waveIndex: 2,
     seed: "sequential-wave",
     baseHp: 100,
     spawners: [],
     wave: {
-      index: 1,
+      index: 2,
       name: "sequential",
       timeLimit: 60,
       clearGold: 0,
@@ -316,20 +316,22 @@ test("the boss waits until every queued and living normal enemy is gone", () => 
   engine.dispose();
 });
 
-test("wave outposts require both structures and unlock the matching board column", () => {
+test("first-wave outpost pairs share bag coordinates and unlock two column groups independently", () => {
   const engine = new CombatEngine();
   const events: CombatEvent[] = [];
   engine.subscribe((event) => events.push(event));
   engine.startWave({
-    waveIndex: 2,
+    waveIndex: 1,
     seed: "outpost-pair",
     baseHp: 100,
     spawners: [],
-    wave: { index: 2, name: "outposts", timeLimit: 60, clearGold: 0, groups: [] },
+    wave: { index: 1, name: "outposts", timeLimit: 60, clearGold: 0, groups: [] },
   });
   const initial = engine.getSnapshot().enemies.filter(({ isStructure }) => isStructure);
-  assert.equal(initial.length, 2);
-  assert.deepEqual(initial.map(({ x, y, maxHp }) => [x, y, maxHp]), [[280, 250, 150], [280, 290, 150]]);
+  assert.equal(initial.length, 4);
+  assert.deepEqual(initial.map(({ x, y, maxHp }) => [x, y, maxHp]), [
+    [195, 250, 90], [195, 290, 90], [285, 250, 90], [285, 290, 90],
+  ]);
   const internals = (engine as unknown as { enemies: Array<{ hp: number; isStructure: boolean }> }).enemies.filter(({ isStructure }) => isStructure);
   internals[0]!.hp = 0;
   stepFor(engine, 0.02);
@@ -337,19 +339,27 @@ test("wave outposts require both structures and unlock the matching board column
   assert.equal(events.some(({ type }) => type === "board-column-unlocked"), false);
   internals[1]!.hp = 0;
   stepFor(engine, 0.02);
-  assert.equal(engine.getSnapshot().phase, "cleared");
+  assert.equal(engine.getSnapshot().phase, "running");
   assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 4), true);
+  assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 6), false);
+  internals[2]!.hp = 0;
+  stepFor(engine, 0.02);
+  assert.equal(engine.getSnapshot().phase, "running");
+  internals[3]!.hp = 0;
+  stepFor(engine, 0.02);
+  assert.equal(engine.getSnapshot().phase, "cleared");
+  assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 6), true);
   engine.dispose();
 
   const later = new CombatEngine();
   later.startWave({
-    waveIndex: 4,
-    seed: "outpost-pair-later",
+    waveIndex: 2,
+    seed: "no-later-outposts",
     baseHp: 100,
     spawners: [],
-    wave: { index: 4, name: "outposts", timeLimit: 60, clearGold: 0, groups: [] },
+    wave: { index: 2, name: "no-outposts", timeLimit: 60, clearGold: 0, groups: [] },
   });
-  assert.deepEqual(later.getSnapshot().enemies.filter(({ isStructure }) => isStructure).map(({ x, maxHp }) => [x, maxHp]), [[314, 210], [314, 210]]);
+  assert.equal(later.getSnapshot().enemies.some(({ isStructure }) => isStructure), false);
   later.dispose();
 });
 
@@ -370,11 +380,11 @@ test("seven player columns and five rows map to distinct allied deployment posit
   const snapshot = engine.getSnapshot();
   const backTop = snapshot.allies.find(({ definitionId }) => definitionId === "shieldbearer")!;
   const frontBottom = snapshot.allies.find(({ definitionId }) => definitionId === "scout")!;
-  assert.equal(backTop.x >= 39 && backTop.x <= 45, true);
+  assert.equal(backTop.x >= 57 && backTop.x <= 63, true);
   assert.equal(backTop.y >= 227 && backTop.y <= 233, true);
-  assert.equal(frontBottom.x >= 243 && frontBottom.x <= 249, true);
+  assert.equal(frontBottom.x >= 327 && frontBottom.x <= 333, true);
   assert.equal(frontBottom.y >= 307 && frontBottom.y <= 313, true);
-  assert.equal(frontBottom.x - backTop.x > 195, true);
+  assert.equal(frontBottom.x - backTop.x > 260, true);
   assert.equal(frontBottom.y - backTop.y > 70, true);
   assert.deepEqual(snapshot.spawners.map(({ characterId, tier, row, col, weapons }) => ({ characterId, tier, row, col, weapons })), [
     { characterId: "shieldbearer", tier: 1, row: 0, col: 0, weapons: [] },
@@ -386,11 +396,11 @@ test("seven player columns and five rows map to distinct allied deployment posit
 test("depth movement still uses both battlefield axes after the ally's delayed first spawn", () => {
   const engine = new CombatEngine();
   engine.startWave({
-    waveIndex: 1,
+    waveIndex: 2,
     seed: "depth-movement",
     baseHp: 100,
     spawners: [{ id: "deep-ally", characterId: "shieldbearer", tier: 1, row: 3, col: 4, maxActive: 2, weapons: [] }],
-    wave: { index: 1, name: "depth", timeLimit: 60, clearGold: 8, groups: [{ at: 0, enemies: [{ enemyId: "armored", count: 1 }] }] },
+    wave: { index: 2, name: "depth", timeLimit: 60, clearGold: 8, groups: [{ at: 0, enemies: [{ enemyId: "armored", count: 1 }] }] },
   });
   (engine as unknown as { spawners: Array<{ cooldown: number }> }).spawners[0]!.cooldown = 0;
   stepFor(engine, 0.02);
@@ -432,14 +442,14 @@ test("battle speed normalization and substeps scale elapsed time without oversiz
 test("deployment projection preserves all five rows and spawn arrival has start, middle, and end states", () => {
   const first = getAllyDeployPosition(0, 0);
   const last = getAllyDeployPosition(4, 6);
-  assert.deepEqual(first, { x: 42, y: 230 });
-  assert.deepEqual(last, { x: 246, y: 310 });
-  assert.equal(INVENTORY_COLUMNS, 8);
+  assert.deepEqual(first, { x: 60, y: 230 });
+  assert.deepEqual(last, { x: 330, y: 310 });
+  assert.equal(INVENTORY_COLUMNS, 7);
   assert.equal(PLAYER_DEPLOY_COLUMNS, 7);
-  assert.equal(BATTLEFIELD_COLUMNS, 10);
-  assert.deepEqual(getBattleCellPosition(4, 9), { x: 348, y: 310 });
-  assert.deepEqual(projectBattlePoint(first.x, first.y), { x: 42, y: 150, depth: 0, scale: 0.68 });
-  assert.deepEqual(projectBattlePoint(last.x, last.y), { x: 246, y: 294, depth: 1, scale: 0.68 });
+  assert.equal(BATTLEFIELD_COLUMNS, 7);
+  assert.deepEqual(getBattleCellPosition(4, 6), { x: 330, y: 310 });
+  assert.deepEqual(projectBattlePoint(first.x, first.y), { x: 60, y: 100, depth: 0, scale: 0.68 });
+  assert.deepEqual(projectBattlePoint(last.x, last.y), { x: 330, y: 280, depth: 1, scale: 0.68 });
   assert.equal(getSpawnArrivalProgress(0.42), 0);
   assert.equal(getSpawnArrivalProgress(0.21), 0.5);
   assert.equal(getSpawnArrivalProgress(0), 1);
