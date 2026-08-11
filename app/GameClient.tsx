@@ -398,7 +398,27 @@ export default function GameClient() {
       }
       previous = now;
       const context = canvas.getContext("2d");
-      if (context) renderBattle(context, snapshotRef.current, { width: 390, height: 360, reducedMotion: settingsRef.current.reducedMotion });
+      if (context) {
+        const liveSnapshot = snapshotRef.current;
+        const renderSnapshot = phaseRef.current === "combat" ? liveSnapshot : {
+          ...liveSnapshot,
+          spawners: deriveSpawnerBlueprints(gridRef.current).map((blueprint) => ({
+            id: blueprint.id,
+            characterId: blueprint.characterId,
+            tier: blueprint.tier,
+            row: blueprint.row,
+            col: blueprint.col,
+            weapons: blueprint.weapons,
+            cooldownRemaining: 0,
+            cooldownDuration: 1,
+            progress: 1,
+            activeCount: 0,
+            maxActive: blueprint.maxActive,
+            state: "ready" as const,
+          })),
+        };
+        renderBattle(context, renderSnapshot, { width: 390, height: 360, reducedMotion: settingsRef.current.reducedMotion });
+      }
       animationFrame = requestAnimationFrame(frame);
     };
     animationFrame = requestAnimationFrame(frame);
@@ -845,18 +865,22 @@ export default function GameClient() {
                 const target = `grid:${position.row}:${position.col}`;
                 const previewed = dropPreview?.cells.some((cell) => positionsEqual(cell, position));
                 const locked = position.col >= unlockedColumns && position.col < PLAYER_DEPLOY_COLUMNS;
-                const enemyZone = position.col >= PLAYER_DEPLOY_COLUMNS;
+                const permanentLocked = position.col >= PLAYER_DEPLOY_COLUMNS;
+                const outpostCell = locked && (position.row === 1 || position.row === 3);
                 return <div
                   key={target}
                   className={[
                     "grid-cell",
                     occupant ? "occupied-cell" : "",
                     locked ? "locked-cell" : "",
-                    enemyZone ? "enemy-zone-cell" : "",
+                    permanentLocked ? "locked-cell permanent-locked-cell" : "",
+                    outpostCell ? "locked-outpost-cell" : "",
                     previewed ? (dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
                   ].filter(Boolean).join(" ")}
-                  data-drop-target={!locked && !enemyZone ? target : undefined}
-                >{item && renderItem(item)}{locked && <span className="cell-lock" aria-hidden="true">🔒</span>}{enemyZone && <span className="enemy-zone-mark" aria-hidden="true">♜</span>}</div>;
+                  data-drop-target={!locked && !permanentLocked ? target : undefined}
+                >{item && renderItem(item)}{outpostCell
+                    ? <span className="locked-outpost" aria-hidden="true">🏴</span>
+                    : (locked || permanentLocked) && <span className="cell-lock" aria-hidden="true">🔒</span>}</div>;
               })}
             </div>
           </div>

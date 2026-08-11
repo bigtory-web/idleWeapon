@@ -435,13 +435,13 @@ function drawDeploymentGrid(context: CanvasRenderingContext2D): void {
         getBattleCellPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).x,
         getBattleCellPosition(row < GRID_ROWS - 1 ? row + 1 : row - 1, col).y,
       );
-      const tileWidth = Math.abs(horizontalNeighbor.x - center.x) * 0.94;
-      const tileHeight = Math.abs(verticalNeighbor.y - center.y) * 0.9;
+      const tileWidth = Math.abs(horizontalNeighbor.x - center.x) * 1.02;
+      const tileHeight = Math.abs(verticalNeighbor.y - center.y) * 0.96;
       const enemyZone = col >= PLAYER_DEPLOY_COLUMNS;
       context.fillStyle = enemyZone
-        ? ((row + col) % 2 === 0 ? "rgba(255,107,125,.09)" : "rgba(105,43,78,.12)")
-        : ((row + col) % 2 === 0 ? "rgba(99,225,213,.09)" : "rgba(231,215,255,.06)");
-      context.strokeStyle = enemyZone ? "rgba(255,107,125,.2)" : "rgba(116,226,216,.2)";
+        ? "rgba(93,48,76,.13)"
+        : "rgba(75,58,112,.14)";
+      context.strokeStyle = enemyZone ? "rgba(183,92,112,.16)" : "rgba(173,151,207,.15)";
       context.lineWidth = 0.75;
       roundedRectPath(context, center.x - tileWidth / 2, center.y - tileHeight / 2, tileWidth, tileHeight, 2);
       context.fill();

@@ -96,7 +96,11 @@ test("inventory uses a locked 42px 6x5 board, continuous footprints, adjacency h
   assert.match(client, /className="fixed-hover-sharing"/);
   assert.match(styles, /\.fixed-hover-sharing/);
   assert.match(client, /locked-cell/);
-  assert.match(client, /enemy-zone-cell/);
+  assert.match(client, /permanent-locked-cell/);
+  assert.match(client, /className="locked-outpost"/);
+  assert.doesNotMatch(client, /enemy-zone-cell|enemy-zone-mark|>♜</);
+  assert.match(client, /phaseRef\.current === "combat" \? liveSnapshot/);
+  assert.match(styles, /\.grid-item \.item-segment,[\s\S]*border:\s*0 !important/);
   assert.match(styles, /grid-template-columns:\s*38px minmax\(0, 1fr\)/);
   assert.doesNotMatch(client, /rotateGridItem|selectedWeaponId|rotate-item-button|inventory-item-details|spawn-linked-flash/);
   assert.doesNotMatch(styles, /spawn-sheen|spawn-linked-flash|inventory-item-details|rotate-item-button|inventory-action-row|\.grid-item\.rotation-selected/);

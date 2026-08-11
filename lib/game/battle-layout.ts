@@ -1,7 +1,7 @@
 import { BATTLEFIELD_COLUMNS, GRID_ROWS, PLAYER_DEPLOY_COLUMNS } from "./types";
 
-export const BATTLE_CELL_X_MIN = 70;
-export const BATTLE_CELL_X_STEP = 40;
+export const BATTLE_CELL_X_MIN = 45;
+export const BATTLE_CELL_X_STEP = 44;
 export const ALLY_DEPLOY_Y_MIN = 230;
 export const ALLY_DEPLOY_Y_STEP = 20;
 export const ALLY_DEPLOY_Y_MAX = ALLY_DEPLOY_Y_MIN + (GRID_ROWS - 1) * ALLY_DEPLOY_Y_STEP;

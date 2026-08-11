@@ -2024,8 +2024,7 @@ textarea:focus-visible {
   box-shadow: none;
 }
 
-.grid-cell.locked-cell,
-.grid-cell.enemy-zone-cell {
+.grid-cell.locked-cell {
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -2036,20 +2035,37 @@ textarea:focus-visible {
   background: repeating-linear-gradient(135deg, rgba(19,15,29,.9) 0 7px, rgba(48,40,62,.86) 7px 14px);
 }
 
-.grid-cell.enemy-zone-cell {
+.grid-cell.permanent-locked-cell {
   border-color: rgba(255,107,125,.32);
-  background: repeating-linear-gradient(135deg, rgba(70,25,46,.72) 0 7px, rgba(35,17,34,.9) 7px 14px);
+  background: repeating-linear-gradient(135deg, rgba(37,25,43,.94) 0 7px, rgba(18,14,25,.94) 7px 14px);
 }
 
 .cell-lock,
-.enemy-zone-mark {
+.locked-outpost {
   color: rgba(228,216,239,.48);
   font-size: 13px;
   filter: grayscale(.35);
   pointer-events: none;
 }
 
-.enemy-zone-mark { color: rgba(255,132,147,.62); }
+.locked-outpost-cell {
+  border-color: rgba(255,107,125,.48) !important;
+  background: radial-gradient(circle, rgba(255,107,125,.17), rgba(24,16,31,.92) 68%) !important;
+}
+
+.locked-outpost {
+  font-size: 18px;
+  filter: none;
+  text-shadow: 0 0 8px rgba(255,107,125,.55);
+}
+
+/* The footprint surface owns the complete item silhouette. Segment borders
+   stay geometry-only so long weapons do not show stray marks around the icon. */
+.grid-item .item-segment,
+.grid-item .segment-bridge {
+  border: 0 !important;
+  box-shadow: none !important;
+}
 
 .grid-item .item-icon {
   font-size: 24px;
