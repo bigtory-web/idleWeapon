@@ -150,11 +150,9 @@ export function canPlaceItem(
 }
 
 export function findFirstPlacement(items: readonly GridItem[], definitionId: ItemId, preferredRotation?: Rotation): { position: GridPosition; rotation: Rotation } | null {
-  const rotations = isCharacterId(definitionId)
-    ? [0 as Rotation]
-    : preferredRotation === undefined
-      ? ROTATIONS
-      : [normalizeRotation(preferredRotation), ...ROTATIONS.filter((value) => value !== normalizeRotation(preferredRotation))];
+  const rotations = [isCharacterId(definitionId) || preferredRotation === undefined
+    ? 0 as Rotation
+    : normalizeRotation(preferredRotation)];
   const probe: GridItem = { id: "__placement-probe__", definitionId, tier: 1, position: null };
   for (let row = 0; row < GRID_ROWS; row += 1) {
     for (let col = 0; col < GRID_COLUMNS; col += 1) {

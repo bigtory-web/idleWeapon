@@ -23,21 +23,30 @@ test("server-renders the Korean game shell", async () => {
   assert.match(html, /<html[^>]*lang="ko"/i);
   assert.match(html, /<span>웨이브<\/span><strong>1/);
   assert.match(html, /제한 시간/);
-  assert.match(html, /기지 HP<\/span><strong>100/);
+  assert.match(html, /aria-label="전투 배속"/);
+  assert.match(html, /class="inventory-grid"/);
   assert.doesNotMatch(html, /BACKPACK BATTALION|LEVEL|레벨 업|>XP</);
 });
 
-test("header, base health, and shop replace the old combat HUD and rewards", async () => {
-  const client = await readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8");
+test("header speed, canvas base health, and direct-purchase shop replace old HUD controls", async () => {
+  const [client, renderer] = await Promise.all([
+    readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/render.ts", import.meta.url), "utf8"),
+  ]);
   assert.match(client, /className="header-combat-info"/);
-  assert.match(client, /className="base-hp-strip"/);
+  assert.match(client, /className="speed-controls"/);
+  assert.match(client, /\(\[0\.5, 1, 2\] as const\)/);
   assert.match(client, /className="shop-panel"/);
+  assert.match(client, /className="shop-buy-button"/);
+  assert.match(client, /`\$\{offer\.price\}골드 구매`/);
   assert.match(client, /generateShopOffers/);
   assert.match(client, /purchaseShopOffer/);
-  assert.doesNotMatch(client, /playerXp|playerLevel|level-up|level-modal|reward-options/);
+  assert.match(renderer, /기지 HP \$\{Math\.ceil\(snapshot\.baseHp\)\}\/\$\{snapshot\.maxBaseHp\}/);
+  assert.doesNotMatch(client, /className="base-hp-strip"|className="gold-balance"|className="shop-selection"|다음 전투를 준비하세요/);
+  assert.doesNotMatch(client, /playerXp|playerLevel|level-up|level-modal|reward-options|selectedOfferId/);
 });
 
-test("inventory uses tier borders, connection marks, actual cooldown, and spawn flashes", async () => {
+test("inventory uses a 38px 7x5 board, continuous footprints, fixed help, and no rotation sheen", async () => {
   const [client, styles] = await Promise.all([
     readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -50,8 +59,7 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(client, /"item-segment",/);
   assert.match(client, /equipped-weapon-mini/);
   assert.match(client, /equipped-weapon-mini-\$\{index\}/);
-  assert.match(client, /className="inventory-action-row"/);
-  assert.match(client, /className="rotate-item-button"/);
+  assert.match(client, /className="fixed-hover-help"/);
   assert.match(client, /getActiveWeaponConnections/);
   assert.match(client, /className="socket-target-mark"/);
   assert.match(client, /장착 패널티/);
@@ -66,17 +74,20 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(styles, /\.tier-1[^{}]*\{[^}]*#aeb3bc/s);
   assert.match(styles, /\.tier-2[^{}]*\{[^}]*#5bc9ff/s);
   assert.match(styles, /\.tier-3[^{}]*\{[^}]*#ffd15e/s);
-  assert.match(styles, /@keyframes spawn-sheen/);
   assert.match(styles, /\.socket-target-cell/);
   assert.match(styles, /\.grid-item\.linked-active/);
   assert.match(styles, /\.grid-item \.item-card\s*\{[^}]*gap:\s*0/s);
   assert.match(styles, /\.item-segment\.edge-top/);
   assert.match(styles, /\.item-segment\.edge-right/);
   assert.match(styles, /\.equipped-weapon-mini-3/);
-  assert.match(styles, /\.grid-item:hover \.inventory-item-details/);
-  assert.match(styles, /\.inventory-action-row/);
-  assert.match(styles, /\.grid-cell:nth-child\(12n \+ 2\)/);
-  assert.doesNotMatch(styles, /\.selected-detail-panel|\.character-glyph|\.grid-item \.inventory-item-details\s*\{\s*display:\s*none/);
+  assert.match(styles, /--board-cell:\s*min\(38px/);
+  assert.match(styles, /grid-template-columns:\s*repeat\(7, var\(--board-cell\)\)/);
+  assert.match(styles, /grid-template-rows:\s*repeat\(5, var\(--board-cell\)\)/);
+  assert.match(styles, /\.inventory-grid \.grid-cell:nth-child\(odd\)/);
+  assert.match(styles, /\.fixed-hover-help/);
+  assert.doesNotMatch(client, /rotateGridItem|selectedWeaponId|rotate-item-button|inventory-item-details|spawn-linked-flash/);
+  assert.doesNotMatch(styles, /spawn-sheen|spawn-linked-flash|inventory-item-details|rotate-item-button|inventory-action-row|\.grid-item\.rotation-selected/);
+  assert.doesNotMatch(styles, /\.selected-detail-panel|\.character-glyph/);
   assert.match(styles, /\.command-panel\s*\{[^}]*flex:\s*1 1 auto/s);
   assert.match(styles, /\.drag-ghost \.grid-item\s*\{[^}]*inset:\s*0/s);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
@@ -96,6 +107,11 @@ test("renderer uses a uniform 2.5D projection and density limits", async () => {
   assert.match(renderer, /units\.length > 55/);
   assert.match(renderer, /152 \+ depth \* 174/);
   assert.match(renderer, /0\.55 \+ depth \* 0\.22/);
+  assert.match(renderer, /ALLY_DEPLOY_Y_MAX - ALLY_DEPLOY_Y_MIN/);
+  assert.match(renderer, /drawSpawnerPlatform/);
+  assert.match(renderer, /drawAbsorbingWeapon/);
+  assert.match(renderer, /getSpawnArrivalProgress/);
+  assert.doesNotMatch(renderer, /createLinearGradient\(effect\.x, 76/);
   assert.match(renderer, /unit\.isBoss \? 1\.45 : 1/);
   assert.match(renderer, /#ff5d63/);
   assert.match(renderer, /#57d9dc/);

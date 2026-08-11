@@ -9,6 +9,7 @@ import {
   WEAPONS as RAW_WEAPONS,
   WEAPON_DAMAGE_MULTIPLIER,
 } from "./data";
+import { getAllyDeployPosition } from "./battle-layout";
 import type {
   CombatEvent,
   CombatSnapshot,
@@ -25,10 +26,6 @@ import type {
  */
 
 const LOGICAL_WIDTH = 390;
-const ALLY_DEPLOY_X_MIN = 58;
-const ALLY_DEPLOY_X_STEP = 16;
-const ALLY_DEPLOY_Y_MIN = 230;
-const ALLY_DEPLOY_Y_STEP = 20;
 const ENEMY_SPAWN_X = 354;
 const BASE_X = 29;
 const UNIT_CAP = MAX_UNITS;
@@ -434,6 +431,11 @@ export class CombatEngine {
           : 1;
         return {
           id: spawner.blueprint.id,
+          characterId: spawner.blueprint.characterId,
+          tier: clamp(Math.round(spawner.blueprint.tier), 1, 3) as Tier,
+          row: spawner.blueprint.row,
+          col: spawner.blueprint.col,
+          weapons: (spawner.blueprint.weapons ?? []).map((weapon) => ({ ...weapon })),
           cooldownRemaining: full ? spawner.cooldownDuration : Math.max(0, spawner.cooldown),
           cooldownDuration: spawner.cooldownDuration,
           progress,
@@ -1009,11 +1011,10 @@ export class CombatEngine {
   }
 
   private allySpawnPosition(row: number, col: number): { x: number; y: number } {
-    const boardRow = clamp(Math.round(row), 0, 3);
-    const boardCol = clamp(Math.round(col), 0, 5);
+    const position = getAllyDeployPosition(row, col);
     return {
-      x: ALLY_DEPLOY_X_MIN + boardCol * ALLY_DEPLOY_X_STEP + this.random.between(-3, 3),
-      y: ALLY_DEPLOY_Y_MIN + boardRow * ALLY_DEPLOY_Y_STEP + this.random.between(-3, 3),
+      x: position.x + this.random.between(-3, 3),
+      y: position.y + this.random.between(-3, 3),
     };
   }
 

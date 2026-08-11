@@ -4,6 +4,8 @@ import type {
   CombatUnitView,
   ProjectileView,
 } from "./types";
+import { CHARACTERS } from "./data";
+import { ALLY_DEPLOY_Y_MAX, ALLY_DEPLOY_Y_MIN, getAllyDeployPosition } from "./battle-layout";
 
 export const BATTLEFIELD_WIDTH = 390;
 export const BATTLEFIELD_HEIGHT = 360;
@@ -65,6 +67,22 @@ interface EffectViewLike {
   value?: number;
 }
 
+interface SpawnerViewLike {
+  id: string;
+  characterId: keyof typeof CHARACTERS;
+  tier: 1 | 2 | 3;
+  row: number;
+  col: number;
+  progress: number;
+  state: "full" | "cooling" | "ready";
+  weapons: Array<{
+    sourceItemId: string;
+    weaponId: string;
+    tier: 1 | 2 | 3;
+    direction: Direction;
+  }>;
+}
+
 interface SnapshotLike {
   phase: "idle" | "running" | "paused" | "cleared" | "defeat";
   waveIndex: number;
@@ -72,6 +90,7 @@ interface SnapshotLike {
   timeLimit: number;
   baseHp: number;
   maxBaseHp: number;
+  spawners: SpawnerViewLike[];
   allies: UnitViewLike[];
   enemies: UnitViewLike[];
   projectiles: ProjectileViewLike[];
@@ -101,6 +120,10 @@ const COLORS = {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+export function getSpawnArrivalProgress(spawnGlow: number): number {
+  return clamp(1 - spawnGlow / 0.42, 0, 1);
 }
 
 function hashText(value: string): number {
@@ -174,6 +197,7 @@ function normalizeSnapshot(snapshot: CombatSnapshot): SnapshotLike {
     timeLimit: value.timeLimit ?? 60,
     baseHp: value.baseHp ?? 100,
     maxBaseHp: value.maxBaseHp ?? 100,
+    spawners: Array.isArray(value.spawners) ? value.spawners : [],
     allies: Array.isArray(value.allies) ? value.allies : [],
     enemies: Array.isArray(value.enemies) ? value.enemies : [],
     projectiles: Array.isArray(value.projectiles) ? value.projectiles : [],
@@ -190,7 +214,7 @@ export interface ProjectedBattlePoint {
 
 /** Visual-only 2.5D projection. Combat continues to use the original X axis. */
 export function projectBattlePoint(x: number, y: number): ProjectedBattlePoint {
-  const depth = clamp((y - 230) / 60, 0, 1);
+  const depth = clamp((y - ALLY_DEPLOY_Y_MIN) / (ALLY_DEPLOY_Y_MAX - ALLY_DEPLOY_Y_MIN), 0, 1);
   const perspective = 0.86 + depth * 0.14;
   return {
     x: BATTLEFIELD_WIDTH / 2 + (x - BATTLEFIELD_WIDTH / 2) * perspective,
@@ -224,6 +248,7 @@ export function renderBattle(
   drawNightBattlefield(context, snapshot.elapsed, width, height);
 
   context.save();
+  for (const spawner of snapshot.spawners) drawSpawnerPlatform(context, spawner);
   drawBase(context, snapshot);
   const projectedEffects = snapshot.effects.map((effect) => {
     const point = projectBattlePoint(effect.x, effect.y);
@@ -427,6 +452,23 @@ function drawBase(context: CanvasRenderingContext2D, snapshot: SnapshotLike): vo
   context.stroke();
   context.shadowBlur = 0;
 
+  context.fillStyle = "rgba(18,10,34,.9)";
+  roundedRectPath(context, -43, -57, 86, 20, 6);
+  context.fill();
+  context.fillStyle = COLORS.white;
+  context.font = "800 10px ui-rounded, system-ui, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(`기지 HP ${Math.ceil(snapshot.baseHp)}/${snapshot.maxBaseHp}`, 0, -50);
+  context.fillStyle = "rgba(5,3,12,.78)";
+  roundedRectPath(context, -38, -43, 76, 5, 2.5);
+  context.fill();
+  if (ratio > 0) {
+    context.fillStyle = ratio > 0.35 ? "#5ee3c0" : COLORS.red;
+    roundedRectPath(context, -38, -43, 76 * ratio, 5, 2.5);
+    context.fill();
+  }
+
   context.fillStyle = "rgba(21,13,37,.75)";
   roundedRectPath(context, -22, 33, 44, 7, 3.5);
   context.fill();
@@ -435,6 +477,39 @@ function drawBase(context: CanvasRenderingContext2D, snapshot: SnapshotLike): vo
     roundedRectPath(context, -20, 35, 40 * ratio, 3, 1.5);
     context.fill();
   }
+  context.restore();
+}
+
+function drawSpawnerPlatform(context: CanvasRenderingContext2D, spawner: SpawnerViewLike): void {
+  const definition = CHARACTERS[spawner.characterId];
+  if (!definition) return;
+  const deploy = getAllyDeployPosition(spawner.row, spawner.col);
+  const point = projectBattlePoint(deploy.x, deploy.y);
+  const scale = point.scale * 0.78;
+  context.save();
+  context.translate(point.x, point.y);
+  context.scale(scale, scale);
+  ellipse(context, 0, 5, 18, 5, "rgba(12,7,26,.48)");
+  context.fillStyle = "#302444";
+  context.strokeStyle = definition.color;
+  context.lineWidth = 2;
+  roundedRectPath(context, -12, -3, 24, 9, 3);
+  context.fill();
+  context.stroke();
+  context.fillStyle = "#4c3b67";
+  roundedRectPath(context, -8, -15, 16, 13, 4);
+  context.fill();
+  context.stroke();
+  context.font = '13px "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(definition.icon, 0, -9);
+  context.strokeStyle = spawner.state === "ready" ? "#fff0a1" : definition.color;
+  context.globalAlpha = 0.8;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(0, 1, 15, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(spawner.progress, 0, 1));
+  context.stroke();
   context.restore();
 }
 
@@ -453,9 +528,13 @@ function drawUnit(
   const visualScale = unit.visualScale ?? 0.6;
   const bob = Math.sin(elapsed * 7 + seed * 0.03) * 0.8 * visualScale;
   const scale = (unit.isBoss ? 1.45 : 1) * visualScale;
+  const spawning = unit.side === "ally" && unit.spawnGlow > 0;
+  const spawnProgress = spawning ? getSpawnArrivalProgress(unit.spawnGlow) : 1;
   context.save();
   context.translate(unit.x, unit.y + bob);
-  context.scale(unit.facing * scale, scale);
+  const arrivalScale = spawning ? 0.68 + spawnProgress * 0.32 : 1;
+  context.scale(unit.facing * scale * arrivalScale, scale * arrivalScale);
+  context.globalAlpha = spawning ? 0.25 + spawnProgress * 0.75 : 1;
   const id = unit.definitionId.toLowerCase();
   if (/scout/.test(id)) {
     context.rotate(-0.06 * unit.facing);
@@ -481,11 +560,34 @@ function drawUnit(
 
   if (unit.side === "ally" && unit.weapons) {
     for (let index = 0; index < unit.weapons.length; index += 1) {
-      drawFloatingWeapon(context, unit, unit.weapons[index], elapsed, index);
+      if (spawning) drawAbsorbingWeapon(context, unit, unit.weapons[index], index, spawnProgress);
+      else drawFloatingWeapon(context, unit, unit.weapons[index], elapsed, index);
     }
   }
 
   if (showHealthBars && (unit.hp < unit.maxHp || unit.isBoss)) drawUnitHealth(context, unit);
+}
+
+function drawAbsorbingWeapon(
+  context: CanvasRenderingContext2D,
+  unit: UnitViewLike,
+  weapon: WeaponViewLike,
+  index: number,
+  progress: number,
+): void {
+  const angle = (index / Math.max(1, unit.weapons?.length ?? 1)) * Math.PI * 2 - Math.PI / 2;
+  const radius = (28 - progress * 24) * (unit.visualScale ?? 0.6) / 0.6;
+  const x = unit.x + Math.cos(angle) * radius;
+  const y = unit.y - 13 + Math.sin(angle) * radius * 0.55;
+  const scale = (0.58 - progress * 0.3) * ((unit.visualScale ?? 0.6) / 0.6);
+  context.save();
+  context.translate(x, y);
+  context.scale(scale, scale);
+  context.globalAlpha = 1 - progress * 0.72;
+  context.shadowColor = weapon.tier === 3 ? "#ffd65c" : weapon.tier === 2 ? "#b78cff" : "#7ce5e2";
+  context.shadowBlur = 8;
+  drawWeaponGlyph(context, weapon.definitionId, unit.facing);
+  context.restore();
 }
 
 function drawFactionOutline(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
@@ -764,23 +866,11 @@ function drawSpawnEffects(
   for (const effect of effects) {
     if (effect.kind !== "spawn") continue;
     const progress = 1 - clamp(effect.life / Math.max(effect.maxLife, 0.001), 0, 1);
-    const alpha = Math.sin(progress * Math.PI) * 0.5;
-    const gradient = context.createLinearGradient(effect.x, 76, effect.x, effect.y + 6);
-    gradient.addColorStop(0, "rgba(132,239,255,0)");
-    gradient.addColorStop(0.35, `rgba(132,239,255,${alpha * 0.45})`);
-    gradient.addColorStop(1, `rgba(218,252,255,${alpha})`);
-    context.fillStyle = gradient;
-    context.beginPath();
-    context.moveTo(effect.x - 4 - progress * 3, 74);
-    context.lineTo(effect.x + 4 + progress * 3, 74);
-    context.lineTo(effect.x + 10, Math.min(height, effect.y + 5));
-    context.lineTo(effect.x - 10, Math.min(height, effect.y + 5));
-    context.closePath();
-    context.fill();
+    const alpha = Math.sin(progress * Math.PI) * 0.72;
     context.strokeStyle = `rgba(181,248,255,${alpha})`;
     context.lineWidth = 1.5;
     context.beginPath();
-    context.ellipse(effect.x, effect.y + 2, 12 + progress * 6, 4, 0, 0, Math.PI * 2);
+    context.ellipse(effect.x, Math.min(height, effect.y + 2), 8 + progress * 15, 3 + progress * 3, 0, 0, Math.PI * 2);
     context.stroke();
   }
 }

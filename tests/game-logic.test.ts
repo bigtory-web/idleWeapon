@@ -15,6 +15,7 @@ import {
   getWaveEnemyTotal,
 } from "../lib/game/data";
 import { CombatEngine } from "../lib/game/engine";
+import { getAllyDeployPosition } from "../lib/game/battle-layout";
 import {
   autoMergeInventory,
   canPlaceItem,
@@ -31,6 +32,8 @@ import {
   rotateGridItem,
 } from "../lib/game/inventory";
 import { createSeededRng, normalizeSeed } from "../lib/game/rng";
+import { getSpawnArrivalProgress, projectBattlePoint } from "../lib/game/render";
+import { getScaledFrameSteps, normalizeBattleSpeed } from "../lib/game/speed";
 import { generateShopOffers, purchaseShopOffer } from "../lib/game/shop";
 import type { CombatEvent, GridItem, ItemId, PendingReward, Rotation, ShopOffer, Tier } from "../lib/game/types";
 
@@ -88,7 +91,8 @@ test("footprints rotate into normalized bounds and reject edges or overlap", () 
   ]);
   const sword = item("sword", "sword", 0, 0);
   assert.deepEqual(getOccupiedCells(sword), [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
-  assert.equal(canPlaceItem([], sword, { row: 0, col: 5 }), false);
+  assert.equal(canPlaceItem([], sword, { row: 0, col: 5 }), true);
+  assert.equal(canPlaceItem([], sword, { row: 0, col: 6 }), false);
   assert.equal(canPlaceItem([item("block", "scout", 0, 1)], sword, { row: 0, col: 0 }), false);
 });
 
@@ -97,7 +101,7 @@ test("rotation keeps the anchor and reverts when the rotated footprint does not 
   const rotated = rotateGridItem([bow], bow.id);
   assert.equal(rotated.moved, true);
   assert.equal(rotated.items[0]?.rotation, 90);
-  const edgeBow = item("edge", "bow", 2, 4);
+  const edgeBow = item("edge", "bow", 3, 4);
   const rejected = rotateGridItem([edgeBow], edgeBow.id);
   assert.equal(rejected.moved, false);
   assert.equal(rejected.items[0]?.rotation, 0);
@@ -158,8 +162,8 @@ test("shop merges before footprint placement and supports a full backpack merge"
   const offer: ShopOffer = { id: "shop-1-sword", waveIndex: 1, definitionId: "sword", tier: 1, price: 5, purchased: false };
   assert.equal(purchaseShopOffer([], 4, offer).reason, "not-enough-gold");
   const full = [item("existing-sword", "sword", 0, 0)];
-  for (let index = 2; index < 24; index += 1) {
-    full.push(item(`full-${index}`, (["shieldbearer", "scout", "sharpshooter"] as ItemId[])[index % 3]!, Math.floor(index / 6), index % 6, 3));
+  for (let index = 2; index < 35; index += 1) {
+    full.push(item(`full-${index}`, (["shieldbearer", "scout", "sharpshooter"] as ItemId[])[index % 3]!, Math.floor(index / 7), index % 7, 3));
   }
   const result = purchaseShopOffer(full, 8, offer);
   assert.equal(result.success, true);
@@ -167,7 +171,7 @@ test("shop merges before footprint placement and supports a full backpack merge"
   assert.equal(result.gridItems.find(({ id }) => id === "existing-sword")?.tier, 2);
 });
 
-test("row-major placement checks every footprint and rotation", () => {
+test("row-major placement keeps newly acquired weapons in their default direction", () => {
   const grid = [item("sword", "sword", 0, 0), item("scout", "scout", 0, 2)];
   const placement = findFirstPlacement(grid, "wand");
   assert.deepEqual(placement, { position: { row: 0, col: 3 }, rotation: 0 });
@@ -185,7 +189,7 @@ test("different footprints swap only when both anchors remain valid", () => {
   assert.equal(swapped.moved, true);
   assert.equal(swapped.swappedWith, bow.id);
   assert.deepEqual(swapped.items.find(({ id }) => id === bow.id)?.position, { row: 0, col: 0 });
-  const edgeSword = item("edge-sword", "sword", 0, 4);
+  const edgeSword = item("edge-sword", "sword", 0, 5);
   const blocked = moveGridItem([edgeSword, item("edge-bow", "bow", 1, 0)], edgeSword.id, { row: 1, col: 0 });
   assert.equal(blocked.moved, false);
 });
@@ -250,7 +254,7 @@ test("unit cap leaves a ready spawner at 100 percent instead of discarding it", 
   engine.dispose();
 });
 
-test("board rows and columns map to distinct allied deployment positions", () => {
+test("seven columns and five rows map to distinct allied deployment positions and spawner views", () => {
   const engine = new CombatEngine();
   engine.startWave({
     waveIndex: 1,
@@ -258,7 +262,7 @@ test("board rows and columns map to distinct allied deployment positions", () =>
     baseHp: 100,
     spawners: [
       { id: "back-top", characterId: "shieldbearer", tier: 1, row: 0, col: 0, maxActive: 1, weapons: [] },
-      { id: "front-bottom", characterId: "scout", tier: 1, row: 3, col: 5, maxActive: 1, weapons: [] },
+      { id: "front-bottom", characterId: "scout", tier: 1, row: 4, col: 6, maxActive: 1, weapons: [] },
     ],
     wave: { index: 1, name: "formation", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [] }] },
   });
@@ -268,10 +272,14 @@ test("board rows and columns map to distinct allied deployment positions", () =>
   const frontBottom = snapshot.allies.find(({ definitionId }) => definitionId === "scout")!;
   assert.equal(backTop.x >= 55 && backTop.x <= 61, true);
   assert.equal(backTop.y >= 227 && backTop.y <= 233, true);
-  assert.equal(frontBottom.x >= 135 && frontBottom.x <= 141, true);
-  assert.equal(frontBottom.y >= 287 && frontBottom.y <= 293, true);
-  assert.equal(frontBottom.x - backTop.x > 70, true);
-  assert.equal(frontBottom.y - backTop.y > 50, true);
+  assert.equal(frontBottom.x >= 151 && frontBottom.x <= 157, true);
+  assert.equal(frontBottom.y >= 307 && frontBottom.y <= 313, true);
+  assert.equal(frontBottom.x - backTop.x > 85, true);
+  assert.equal(frontBottom.y - backTop.y > 70, true);
+  assert.deepEqual(snapshot.spawners.map(({ characterId, tier, row, col, weapons }) => ({ characterId, tier, row, col, weapons })), [
+    { characterId: "shieldbearer", tier: 1, row: 0, col: 0, weapons: [] },
+    { characterId: "scout", tier: 1, row: 4, col: 6, weapons: [] },
+  ]);
   engine.dispose();
 });
 
@@ -302,7 +310,32 @@ test("drop helper moves multi-cell items and rejects invalid anchors", () => {
   const moved = dropItemOnGrid(state, "sword", { row: 2, col: 2 });
   assert.equal(moved.success, true);
   assert.deepEqual(moved.gridItems[0]?.position, { row: 2, col: 2 });
-  assert.equal(dropItemOnGrid(state, "sword", { row: 0, col: 5 }).success, false);
+  assert.equal(dropItemOnGrid(state, "sword", { row: 0, col: 5 }).success, true);
+  assert.equal(dropItemOnGrid(state, "sword", { row: 0, col: 6 }).success, false);
+});
+
+test("battle speed normalization and substeps scale elapsed time without oversized steps", () => {
+  assert.equal(normalizeBattleSpeed(0.5), 0.5);
+  assert.equal(normalizeBattleSpeed(2), 2);
+  assert.equal(normalizeBattleSpeed(7), 1);
+  assert.deepEqual(getScaledFrameSteps(0.1, 0.5), [0.05]);
+  assert.deepEqual(getScaledFrameSteps(0.1, 1), [0.05, 0.05]);
+  const doubleSteps = getScaledFrameSteps(0.1, 2);
+  assert.equal(doubleSteps.length, 4);
+  assert.equal(Math.abs(doubleSteps.reduce((sum, step) => sum + step, 0) - 0.2) < 0.000001, true);
+  assert.equal(doubleSteps.every((step) => step <= 0.05), true);
+});
+
+test("deployment projection preserves all five rows and spawn arrival has start, middle, and end states", () => {
+  const first = getAllyDeployPosition(0, 0);
+  const last = getAllyDeployPosition(4, 6);
+  assert.deepEqual(first, { x: 58, y: 230 });
+  assert.deepEqual(last, { x: 154, y: 310 });
+  assert.equal(projectBattlePoint(first.x, first.y).y, 152);
+  assert.equal(projectBattlePoint(last.x, last.y).y, 326);
+  assert.equal(getSpawnArrivalProgress(0.42), 0);
+  assert.equal(getSpawnArrivalProgress(0.21), 0.5);
+  assert.equal(getSpawnArrivalProgress(0), 1);
 });
 
 test("seeded RNG remains deterministic and immutable", () => {

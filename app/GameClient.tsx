@@ -31,9 +31,9 @@ import {
   getWorldSockets,
   normalizeRotation,
   positionsEqual,
-  rotateGridItem,
 } from "@/lib/game/inventory";
 import { renderBattle } from "@/lib/game/render";
+import { getScaledFrameSteps, normalizeBattleSpeed } from "@/lib/game/speed";
 import {
   canPurchaseShopOffer,
   generateShopOffers,
@@ -42,6 +42,7 @@ import {
 import {
   GRID_COLUMNS,
   GRID_ROWS,
+  type BattleSpeed,
   type CombatMetrics,
   type CombatSnapshot,
   type Direction,
@@ -74,6 +75,14 @@ interface DragState {
 interface Settings {
   muted: boolean;
   reducedMotion: boolean;
+  battleSpeed: BattleSpeed;
+}
+
+interface HoverHelp {
+  key: string;
+  title: string;
+  description: string;
+  detail?: string;
 }
 
 interface ToastMessage {
@@ -162,7 +171,6 @@ export default function GameClient() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
-  const flashTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const dragRef = useRef<DragState | null>(null);
   const dropTargetRef = useRef<string | null>(null);
 
@@ -175,16 +183,14 @@ export default function GameClient() {
   const [goldEarned, setGoldEarned] = useState(0);
   const [goldSpent, setGoldSpent] = useState(0);
   const [shopOffers, setShopOffers] = useState<ShopOffer[]>([]);
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<ShopPurchase[]>([]);
-  const [spawnFlashIds, setSpawnFlashIds] = useState<Set<string>>(new Set());
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [previewItemId, setPreviewItemId] = useState<string | null>(null);
-  const [selectedWeaponId, setSelectedWeaponId] = useState<string | null>(null);
+  const [hoverHelp, setHoverHelp] = useState<HoverHelp | null>(null);
   const [manualPaused, setManualPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<Settings>({ muted: false, reducedMotion: false });
+  const [settings, setSettings] = useState<Settings>({ muted: false, reducedMotion: false, battleSpeed: 1 });
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [report, setReport] = useState<RunReportV2 | null>(null);
 
@@ -243,7 +249,6 @@ export default function GameClient() {
     const merged = autoMerge ? autoMergeInventory(nextGridItems, []) : { gridItems: nextGridItems, pendingRewards: [], merges: [] };
     gridRef.current = merged.gridItems;
     setGridItems(merged.gridItems);
-    setSelectedWeaponId((current) => current && merged.gridItems.some((item) => item.id === current) ? current : null);
     return merged;
   }, []);
 
@@ -284,31 +289,17 @@ export default function GameClient() {
     }
   }, [changePhase]);
 
-  const flashSpawnLinks = useCallback((ids: string[]) => {
-    const duration = settingsRef.current.reducedMotion ? 120 : 180;
-    setSpawnFlashIds((current) => new Set([...current, ...ids]));
-    for (const id of ids) {
-      const previous = flashTimersRef.current.get(id);
-      if (previous) clearTimeout(previous);
-      const timer = setTimeout(() => {
-        setSpawnFlashIds((current) => {
-          const next = new Set(current);
-          next.delete(id);
-          return next;
-        });
-        flashTimersRef.current.delete(id);
-      }, duration);
-      flashTimersRef.current.set(id, timer);
-    }
-  }, []);
-
   useEffect(() => {
     let hydrateTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<Settings> | null;
       const querySeed = new URLSearchParams(window.location.search).get("seed")?.trim();
       hydrateTimer = setTimeout(() => {
-        if (stored) setSettings((current) => ({ ...current, ...stored }));
+        if (stored) setSettings((current) => ({
+          ...current,
+          ...stored,
+          battleSpeed: normalizeBattleSpeed(stored.battleSpeed),
+        }));
         if (querySeed) {
           seedRef.current = querySeed;
           setSeed(querySeed);
@@ -326,13 +317,10 @@ export default function GameClient() {
 
   useEffect(() => {
     const engine = engineRef.current;
-    const flashTimers = flashTimersRef.current;
     const unsubscribe = engine.subscribe((event) => {
       if (event.type === "snapshot") {
         snapshotRef.current = event.snapshot;
         setSnapshot(event.snapshot);
-      } else if (event.type === "ally-spawned") {
-        flashSpawnLinks([event.spawnerId, ...event.weaponItemIds]);
       } else if (event.type === "wave-cleared") {
         totalsRef.current = addMetrics(totalsRef.current, event.metrics);
         const snap = engine.getSnapshot();
@@ -354,7 +342,6 @@ export default function GameClient() {
           commitInventory(gridRef.current);
           setWaveCursor(event.waveIndex);
           setShopOffers(generateShopOffers(seedRef.current, event.waveIndex));
-          setSelectedOfferId(null);
           changePhase("shop");
           showToast(`웨이브 완료 · +${event.goldEarned} 골드`, "success");
         }, settingsRef.current.reducedMotion ? 0 : 600);
@@ -374,11 +361,11 @@ export default function GameClient() {
       unsubscribe();
       document.removeEventListener("visibilitychange", onVisibility);
       if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
-      for (const timer of flashTimers.values()) clearTimeout(timer);
-      flashTimers.clear();
-      void audioRef.current?.close();
+      const audio = audioRef.current;
+      audioRef.current = null;
+      if (audio && audio.state !== "closed") void audio.close().catch(() => undefined);
     };
-  }, [changePhase, commitInventory, finishRun, flashSpawnLinks, playTone, showToast]);
+  }, [changePhase, commitInventory, finishRun, playTone, showToast]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -396,7 +383,9 @@ export default function GameClient() {
         canvas.height = height;
       }
       if (phaseRef.current === "combat") {
-        snapshotRef.current = engine.step(Math.min((now - previous) / 1000, 0.1));
+        for (const step of getScaledFrameSteps((now - previous) / 1000, settingsRef.current.battleSpeed)) {
+          snapshotRef.current = engine.step(step);
+        }
       }
       previous = now;
       const context = canvas.getContext("2d");
@@ -411,9 +400,7 @@ export default function GameClient() {
   const timeRemaining = phase === "combat"
     ? Math.max(0, snapshot.timeLimit - snapshot.elapsed)
     : currentWave?.timeLimit ?? 0;
-  const selectedOffer = shopOffers.find((offer) => offer.id === selectedOfferId) ?? null;
   const inventoryLocked = phase === "combat" || phase === "transition";
-  const hpRatio = Math.max(0, Math.min(100, (snapshot.baseHp / Math.max(1, snapshot.maxBaseHp)) * 100));
 
   const resetRun = useCallback((nextSeed: string) => {
     if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
@@ -433,9 +420,8 @@ export default function GameClient() {
     setPurchases([]);
     purchasesRef.current = [];
     setShopOffers([]);
-    setSelectedOfferId(null);
     setPreviewItemId(null);
-    setSelectedWeaponId(null);
+    setHoverHelp(null);
     setManualPaused(false);
     setReport(null);
     totalsRef.current = emptyMetrics();
@@ -456,7 +442,7 @@ export default function GameClient() {
       return;
     }
     setShopOffers([]);
-    setSelectedOfferId(null);
+    setHoverHelp(null);
     changePhase("combat");
     setManualPaused(false);
     playTone(420, 0.08);
@@ -469,8 +455,8 @@ export default function GameClient() {
     });
   }, [changePhase, playTone, showToast, waveCursor]);
 
-  const buySelectedOffer = useCallback(() => {
-    const offer = shopOffers.find((entry) => entry.id === selectedOfferId);
+  const buyOffer = useCallback((offerId: string) => {
+    const offer = shopOffers.find((entry) => entry.id === offerId);
     if (!offer) return;
     const result = purchaseShopOffer(gridRef.current, goldRef.current, offer);
     if (!result.success) {
@@ -491,10 +477,9 @@ export default function GameClient() {
     purchasesRef.current = [...purchasesRef.current, purchase];
     setPurchases(purchasesRef.current);
     setShopOffers((current) => current.map((entry) => entry.id === offer.id ? { ...entry, purchased: true } : entry));
-    setSelectedOfferId(null);
     playTone(690, 0.1);
     showToast(`${ITEM_DEFINITIONS[offer.definitionId].name} 구매 완료${result.merges ? ` · ${result.merges}회 합성` : ""}`, "success");
-  }, [commitInventory, playTone, selectedOfferId, shopOffers, showToast]);
+  }, [commitInventory, playTone, shopOffers, showToast]);
 
   const togglePause = useCallback(() => {
     if (phaseRef.current !== "combat") return;
@@ -581,9 +566,6 @@ export default function GameClient() {
       const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-target]");
       const finalTarget = element?.dataset.dropTarget ?? dropTargetRef.current;
       completeDrop(current.id, finalTarget, current.grabRow, current.grabCol);
-    } else if (event.pointerType === "mouse") {
-      const item = gridRef.current.find((entry) => entry.id === current.id);
-      setSelectedWeaponId(item && !isCharacterId(item.definitionId) ? item.id : null);
     } else if (event.pointerType !== "mouse") {
       setPreviewItemId((selected) => selected === current.id ? null : current.id);
     }
@@ -603,13 +585,6 @@ export default function GameClient() {
 
   const onItemKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, itemId: string) => {
     if (phaseRef.current !== "preparation" && phaseRef.current !== "shop") return;
-    if (event.key.toLowerCase() === "r") {
-      event.preventDefault();
-      const rotated = rotateGridItem(gridRef.current, itemId);
-      if (rotated.moved) applyInventory(rotated.items);
-      else showToast("이 위치에서는 회전할 수 없어요.", "warning");
-      return;
-    }
     const arrows: Record<string, [number, number]> = {
       ArrowUp: [-1, 0], ArrowRight: [0, 1], ArrowDown: [1, 0], ArrowLeft: [0, -1],
     };
@@ -624,14 +599,7 @@ export default function GameClient() {
       { row: item.position.row + delta[0], col: item.position.col + delta[1] },
     );
     if (result.success) applyInventory(result.gridItems, result.action === "merged" ? "캐릭터 합성 완료!" : undefined);
-  }, [applyInventory, showToast]);
-
-  const rotateSelectedWeapon = useCallback(() => {
-    if (!selectedWeaponId || inventoryLocked) return;
-    const rotated = rotateGridItem(gridRef.current, selectedWeaponId);
-    if (rotated.moved) applyInventory(rotated.items);
-    else showToast("이 위치에서는 회전할 수 없어요.", "warning");
-  }, [applyInventory, inventoryLocked, selectedWeaponId, showToast]);
+  }, [applyInventory]);
 
   const renderItem = (item: GridItem, options: { dragGhost?: boolean } = {}) => {
     const dragGhost = options.dragGhost ?? false;
@@ -664,9 +632,6 @@ export default function GameClient() {
             key: `${socket.direction}-${index}`,
           }];
         });
-    const relationDetail = isCharacter
-      ? `다음 생성 무기: ${adjacentConnections.length ? adjacentConnections.map(({ item: weapon }) => ITEM_DEFINITIONS[weapon.definitionId].name).join(", ") : "맨손"}`
-      : `공유 캐릭터: ${sharingCharacters.length}명`;
     const spawner = snapshot.spawners.find((entry) => entry.id === item.id);
     const progress = phase === "combat" && isCharacter ? spawner?.progress ?? 0 : 0;
     const squadDetail = spawner ? ` · 분대 ${spawner.activeCount}/${spawner.maxActive}` : "";
@@ -682,13 +647,26 @@ export default function GameClient() {
         definition.equipPenalty.moveSpeedMultiplier ? `이동 -${Math.round((1 - definition.equipPenalty.moveSpeedMultiplier) * 100)}%` : "",
       ].filter(Boolean).join(" · ")
       : "";
-    const detailId = dragGhost ? undefined : `item-detail-${item.id}`;
+    const itemHelp: HoverHelp = {
+      key: `item:${item.id}`,
+      title: `${definition.name} · T${item.tier}`,
+      description: definition.description,
+      detail: [characterStats, penaltyDetail ? `장착 패널티: ${penaltyDetail}` : "", `${activeRelationDetail}${squadDetail}`].filter(Boolean).join(" · "),
+    };
+    const showItemHelp = () => {
+      setPreviewItemId(item.id);
+      setHoverHelp(itemHelp);
+    };
+    const hideItemHelp = () => {
+      setPreviewItemId((current) => current === item.id ? null : current);
+      setHoverHelp((current) => current?.key === itemHelp.key ? null : current);
+    };
     const layoutStyle = {
       ...itemStyle(definition, progress),
       "--item-cols": geometry.cols,
       "--item-rows": geometry.rows,
-      "--item-width": `calc(${geometry.cols * 100}% + ${(geometry.cols - 1) * 5}px - 6px)`,
-      "--item-height": `calc(${geometry.rows * 100}% + ${(geometry.rows - 1) * 5}px - 6px)`,
+      "--item-width": `calc(var(--board-cell) * ${geometry.cols} + ${(geometry.cols - 1) * 4}px)`,
+      "--item-height": `calc(var(--board-cell) * ${geometry.rows} + ${(geometry.rows - 1) * 4}px)`,
     } as CSSProperties;
     return (
       <button
@@ -703,12 +681,10 @@ export default function GameClient() {
           activeConnections.length || sharingCharacters.length ? "linked-active" : "",
           !dragGhost && drag?.id === item.id ? "dragging" : "",
           !dragGhost && previewItemId === item.id ? "previewing" : "",
-          !dragGhost && selectedWeaponId === item.id ? "rotation-selected" : "",
-          !dragGhost && spawnFlashIds.has(item.id) ? "spawn-linked-flash" : "",
         ].filter(Boolean).join(" ")}
         style={layoutStyle}
         aria-label={`${definition.name} 티어 ${item.tier}. ${activeRelationDetail}${squadDetail}`}
-        aria-describedby={detailId}
+        aria-describedby="fixed-hover-help"
         aria-disabled={inventoryLocked}
         aria-expanded={!dragGhost && previewItemId === item.id}
         aria-hidden={dragGhost || undefined}
@@ -717,10 +693,10 @@ export default function GameClient() {
         onPointerMove={dragGhost ? undefined : pointerMove}
         onPointerUp={dragGhost ? undefined : pointerUp}
         onPointerCancel={dragGhost ? undefined : cancelDrag}
-        onMouseEnter={dragGhost ? undefined : () => setPreviewItemId(item.id)}
-        onMouseLeave={dragGhost ? undefined : () => setPreviewItemId((current) => current === item.id ? null : current)}
-        onFocus={dragGhost ? undefined : () => setPreviewItemId(item.id)}
-        onBlur={dragGhost ? undefined : () => setPreviewItemId((current) => current === item.id ? null : current)}
+        onMouseEnter={dragGhost ? undefined : showItemHelp}
+        onMouseLeave={dragGhost ? undefined : hideItemHelp}
+        onFocus={dragGhost ? undefined : showItemHelp}
+        onBlur={dragGhost ? undefined : hideItemHelp}
         onKeyDown={dragGhost ? undefined : (event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
@@ -743,13 +719,6 @@ export default function GameClient() {
           <span className="item-icon">{definition.icon}</span>
           {isCharacter && <span className="character-name-mini" aria-hidden="true">{definition.name}</span>}
           {isCharacter && activeConnections.map(({ item: weapon }, index) => <span key={weapon.id} className={`equipped-weapon-mini equipped-weapon-mini-${index}`} aria-hidden="true">{ITEM_DEFINITIONS[weapon.definitionId].icon}</span>)}
-          {!dragGhost && <span id={detailId} className="inventory-item-details" role="tooltip">
-            <strong>{definition.name} · T{item.tier}</strong>
-            <span>{definition.description}</span>
-            {isCharacter && <span className="inventory-stat-detail">{characterStats}</span>}
-            {penaltyDetail && <span className="inventory-penalty-detail">장착 패널티: {penaltyDetail}</span>}
-            <span className="inventory-relation-detail">{activeRelationDetail}{squadDetail}</span>
-          </span>}
         </span>
       </button>
     );
@@ -776,12 +745,6 @@ export default function GameClient() {
     return { cells: getOccupiedCells(item, position), valid: result.success };
   })();
 
-  const selectedRotationItem = selectedWeaponId
-    ? gridItems.find((item) => item.id === selectedWeaponId && !isCharacterId(item.definitionId)) ?? null
-    : null;
-  const selectedRotationDefinition = selectedRotationItem
-    ? ITEM_DEFINITIONS[selectedRotationItem.definitionId]
-    : null;
   const openSocketTargets = new Set(gridItems.flatMap((item) => getWorldSockets(item).flatMap((socket) => {
     const offsets: Record<Direction, [number, number]> = {
       up: [-1, 0], right: [0, 1], down: [1, 0], left: [0, -1],
@@ -802,7 +765,18 @@ export default function GameClient() {
             <div><span>웨이브</span><strong>{currentWave?.index ?? 6}/6</strong></div>
             <div><span>{phase === "combat" ? "남은 시간" : "제한 시간"}</span><strong className={timeRemaining < 10 && phase === "combat" ? "danger" : ""}>{formatTime(timeRemaining)}</strong></div>
           </div>
-          <button type="button" className="icon-button" aria-label="게임 설정" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>⚙</button>
+          <div className="top-actions">
+            <div className="speed-controls" role="group" aria-label="전투 배속">
+              {([0.5, 1, 2] as const).map((speed) => <button
+                key={speed}
+                type="button"
+                className={settings.battleSpeed === speed ? "active" : ""}
+                aria-pressed={settings.battleSpeed === speed}
+                onClick={() => setSettings((current) => ({ ...current, battleSpeed: speed }))}
+              >{speed}×</button>)}
+            </div>
+            <button type="button" className="icon-button" aria-label="게임 설정" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>⚙</button>
+          </div>
           {settingsOpen && <div className="settings-popover">
             <h2 className="settings-title">게임 설정</h2>
             <button type="button" className="settings-option" aria-pressed={!settings.muted} onClick={() => setSettings((current) => ({ ...current, muted: !current.muted }))}><span>효과음</span><span className={`toggle-track ${!settings.muted ? "on" : ""}`} /></button>
@@ -823,42 +797,54 @@ export default function GameClient() {
           </div>}
 
           {phase === "shop" && <div className="shop-panel" aria-label="웨이브 상점">
-            <div className="shop-heading"><div><span>웨이브 상점</span><strong>다음 전투를 준비하세요</strong></div><div className="gold-balance">● {gold}</div></div>
+            <div className="shop-heading"><strong>웨이브 상점</strong></div>
             <div className="shop-offers">
               {shopOffers.map((offer) => {
                 const definition = ITEM_DEFINITIONS[offer.definitionId];
-                const selected = selectedOfferId === offer.id;
-                return <button
-                  type="button"
+                const purchasable = canPurchaseShopOffer(gridItems, gold, offer);
+                const shopDetail = definition.kind === "character"
+                  ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초`
+                  : definition.equipPenalty
+                    ? `장착 패널티: ${definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}`
+                    : undefined;
+                const shopHelp: HoverHelp = {
+                  key: `shop:${offer.id}`,
+                  title: `${definition.name} · T${offer.tier}`,
+                  description: definition.description,
+                  detail: shopDetail,
+                };
+                const showShopHelp = () => setHoverHelp(shopHelp);
+                const hideShopHelp = () => setHoverHelp((current) => current?.key === shopHelp.key ? null : current);
+                return <article
                   key={offer.id}
-                  className={`shop-card tier-${offer.tier} ${selected ? "selected" : ""} ${offer.purchased ? "purchased" : ""}`}
+                  className={`shop-card tier-${offer.tier} ${offer.purchased ? "purchased" : ""} ${!purchasable ? "unavailable" : ""}`}
                   style={itemStyle(definition)}
-                  aria-pressed={selected}
-                  disabled={offer.purchased}
-                  onClick={() => setSelectedOfferId(offer.id)}
+                  onMouseEnter={showShopHelp}
+                  onMouseLeave={hideShopHelp}
+                  onFocus={showShopHelp}
+                  onBlur={hideShopHelp}
                 >
                   <span className="shop-icon">{definition.icon}</span>
                   <strong>{definition.name}</strong>
-                  <span className="shop-price">{offer.purchased ? "구매 완료" : `● ${offer.price}`}</span>
-                  <span className="shop-card-details" role="tooltip">
-                    <span>{definition.description}</span>
-                    {definition.kind === "character" && <span className="shop-stat-detail">HP {definition.hp} · 이동 {definition.moveSpeed} · 생성 {definition.spawnCooldown.toFixed(1)}초</span>}
-                    {definition.kind === "weapon" && definition.equipPenalty && <span className="shop-penalty-detail">장착 패널티: {definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}</span>}
-                  </span>
-                </button>;
+                  <button
+                    type="button"
+                    className="shop-buy-button"
+                    disabled={offer.purchased}
+                    aria-disabled={!purchasable}
+                    aria-describedby="fixed-hover-help"
+                    onClick={() => buyOffer(offer.id)}
+                  >{offer.purchased ? "구매 완료" : `${offer.price}골드 구매`}</button>
+                </article>;
               })}
-            </div>
-            <div className="shop-selection">
-              <span>{selectedOffer ? ITEM_DEFINITIONS[selectedOffer.definitionId].description : "상품을 선택하면 설명과 구매 버튼이 나타나요."}</span>
-              <button type="button" className="buy-button" disabled={!selectedOffer || !canPurchaseShopOffer(gridItems, gold, selectedOffer)} onClick={buySelectedOffer}>{selectedOffer ? `${selectedOffer.price}골드 구매` : "상품 선택"}</button>
             </div>
             <button type="button" className="primary-action shop-next-button" onClick={startWave}>다음 웨이브 시작</button>
           </div>}
 
-          <div className="base-hp-strip">
-            <div className="base-hp-copy"><span>기지 HP</span><strong>{Math.ceil(snapshot.baseHp)}/{snapshot.maxBaseHp}</strong></div>
-            <div className="base-hp-meter"><span className={hpRatio <= 35 ? "danger" : ""} style={{ width: `${hpRatio}%` }} /></div>
-          </div>
+          {hoverHelp && <div id="fixed-hover-help" className="fixed-hover-help" role="tooltip">
+            <strong>{hoverHelp.title}</strong>
+            <span>{hoverHelp.description}</span>
+            {hoverHelp.detail && <span className="fixed-hover-detail">{hoverHelp.detail}</span>}
+          </div>}
         </section>
 
         <section className="command-panel" aria-label="가방 편성">
@@ -884,15 +870,6 @@ export default function GameClient() {
               })}
             </div>
           </div>
-          {selectedRotationItem && selectedRotationDefinition && !inventoryLocked && <div className="inventory-action-row" aria-live="polite">
-            <span>{selectedRotationDefinition.name} 선택됨</span>
-            <button
-              type="button"
-              className="rotate-item-button"
-              onClick={rotateSelectedWeapon}
-              aria-label={`${selectedRotationDefinition.name} 90도 회전`}
-            >↻ 회전</button>
-          </div>}
         </section>
 
         <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone === "normal" ? "" : toast.tone}`}>{toast.copy}</div>)}</div>

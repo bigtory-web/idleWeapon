@@ -1,7 +1,8 @@
-export const GRID_COLUMNS = 6 as const;
-export const GRID_ROWS = 4 as const;
+export const GRID_COLUMNS = 7 as const;
+export const GRID_ROWS = 5 as const;
 
 export type Tier = 1 | 2 | 3;
+export type BattleSpeed = 0.5 | 1 | 2;
 export type GamePhase =
   | "preparation"
   | "combat"
@@ -187,6 +188,11 @@ export interface CombatWeaponView {
 
 export interface SpawnerStatusView {
   id: string;
+  characterId: CharacterId;
+  tier: Tier;
+  row: number;
+  col: number;
+  weapons: EquippedWeaponSnapshot[];
   cooldownRemaining: number;
   cooldownDuration: number;
   progress: number;
