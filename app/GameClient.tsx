@@ -67,6 +67,8 @@ interface DragState {
   startY: number;
   x: number;
   y: number;
+  sourceWidth: number;
+  sourceHeight: number;
   moved: boolean;
   grabRow: number;
   grabCol: number;
@@ -174,6 +176,8 @@ export default function GameClient() {
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const flashTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const dragRef = useRef<DragState | null>(null);
+  const dropTargetRef = useRef<string | null>(null);
 
   const [phase, setPhase] = useState<UiPhase>("preparation");
   const [waveCursor, setWaveCursor] = useState(0);
@@ -552,32 +556,66 @@ export default function GameClient() {
     const rect = event.currentTarget.getBoundingClientRect();
     const grabRow = Math.max(0, Math.min(geometry.rows - 1, Math.floor(((event.clientY - rect.top) / Math.max(1, rect.height)) * geometry.rows)));
     const grabCol = Math.max(0, Math.min(geometry.cols - 1, Math.floor(((event.clientX - rect.left) / Math.max(1, rect.width)) * geometry.cols)));
-    setDrag({ id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, moved: false, grabRow, grabCol });
+    const nextDrag = {
+      id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      sourceWidth: rect.width,
+      sourceHeight: rect.height,
+      moved: false,
+      grabRow,
+      grabCol,
+    };
+    dragRef.current = nextDrag;
+    dropTargetRef.current = null;
+    setDrag(nextDrag);
+    setDropTarget(null);
   }, []);
 
   const pointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    setDrag((current) => {
-      if (!current || current.pointerId !== event.pointerId) return current;
-      const moved = current.moved || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 5;
-      if (moved) {
-        const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-target]");
-        setDropTarget(element?.dataset.dropTarget ?? null);
+    const current = dragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const moved = current.moved || Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 5;
+    const nextDrag = { ...current, x: event.clientX, y: event.clientY, moved };
+    dragRef.current = nextDrag;
+    setDrag(nextDrag);
+    if (moved) {
+      const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-target]");
+      const nextTarget = element?.dataset.dropTarget ?? null;
+      if (dropTargetRef.current !== nextTarget) {
+        dropTargetRef.current = nextTarget;
+        setDropTarget(nextTarget);
       }
-      return { ...current, x: event.clientX, y: event.clientY, moved };
-    });
+    }
   }, []);
 
   const pointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    if (drag.moved) {
+    const current = dragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (current.moved) {
       setPreviewItemId(null);
-      completeDrop(drag.id, dropTarget, drag.grabRow, drag.grabCol);
+      const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-drop-target]");
+      const finalTarget = element?.dataset.dropTarget ?? dropTargetRef.current;
+      completeDrop(current.id, finalTarget, current.grabRow, current.grabCol);
     } else if (event.pointerType !== "mouse") {
-      setPreviewItemId((current) => current === drag.id ? null : drag.id);
+      setPreviewItemId((selected) => selected === current.id ? null : current.id);
     }
+    dragRef.current = null;
+    dropTargetRef.current = null;
     setDrag(null);
     setDropTarget(null);
-  }, [completeDrop, drag, dropTarget]);
+  }, [completeDrop]);
+
+  const cancelDrag = useCallback(() => {
+    dragRef.current = null;
+    dropTargetRef.current = null;
+    setDrag(null);
+    setDropTarget(null);
+    setPreviewItemId(null);
+  }, []);
 
   const onItemKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, itemId: string) => {
     if (phaseRef.current !== "preparation" && phaseRef.current !== "shop") return;
@@ -611,7 +649,8 @@ export default function GameClient() {
     else showToast("이 위치에서는 회전할 수 없어요.", "warning");
   }, [applyInventory, inventoryLocked, previewItemId, showToast]);
 
-  const renderItem = (item: GridItem) => {
+  const renderItem = (item: GridItem, options: { dragGhost?: boolean } = {}) => {
+    const dragGhost = options.dragGhost ?? false;
     const definition = ITEM_DEFINITIONS[item.definitionId];
     const isCharacter = definition.kind === "character";
     const geometry = getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation));
@@ -661,7 +700,7 @@ export default function GameClient() {
         definition.equipPenalty.moveSpeedMultiplier ? `이동 -${Math.round((1 - definition.equipPenalty.moveSpeedMultiplier) * 100)}%` : "",
       ].filter(Boolean).join(" · ")
       : "";
-    const detailId = `item-detail-${item.id}`;
+    const detailId = dragGhost ? undefined : `item-detail-${item.id}`;
     const layoutStyle = {
       ...itemStyle(definition, progress),
       "--item-cols": geometry.cols,
@@ -680,23 +719,25 @@ export default function GameClient() {
           `rotation-${normalizeRotation(item.rotation)}`,
           `tier-${item.tier}`,
           activeConnections.length || sharingCharacters.length ? "linked-active" : "",
-          drag?.id === item.id ? "dragging" : "",
-          previewItemId === item.id ? "previewing" : "",
-          spawnFlashIds.has(item.id) ? "spawn-linked-flash" : "",
+          !dragGhost && drag?.id === item.id ? "dragging" : "",
+          !dragGhost && previewItemId === item.id ? "previewing" : "",
+          !dragGhost && spawnFlashIds.has(item.id) ? "spawn-linked-flash" : "",
         ].filter(Boolean).join(" ")}
         style={layoutStyle}
         aria-label={`${definition.name} 티어 ${item.tier}. ${activeRelationDetail}${squadDetail}`}
         aria-describedby={detailId}
         aria-disabled={inventoryLocked}
-        aria-expanded={previewItemId === item.id}
-        onPointerDown={(event) => pointerDown(event, item.id)}
-        onPointerMove={pointerMove}
-        onPointerUp={pointerUp}
-        onPointerCancel={() => { setDrag(null); setDropTarget(null); setPreviewItemId(null); }}
-        onMouseEnter={() => setPreviewItemId(item.id)}
-        onMouseLeave={() => setPreviewItemId((current) => current === item.id ? null : current)}
-        onFocus={() => setPreviewItemId(item.id)}
-        onKeyDown={(event) => onItemKeyDown(event, item.id)}
+        aria-expanded={!dragGhost && previewItemId === item.id}
+        aria-hidden={dragGhost || undefined}
+        tabIndex={dragGhost ? -1 : undefined}
+        onPointerDown={dragGhost ? undefined : (event) => pointerDown(event, item.id)}
+        onPointerMove={dragGhost ? undefined : pointerMove}
+        onPointerUp={dragGhost ? undefined : pointerUp}
+        onPointerCancel={dragGhost ? undefined : cancelDrag}
+        onMouseEnter={dragGhost ? undefined : () => setPreviewItemId(item.id)}
+        onMouseLeave={dragGhost ? undefined : () => setPreviewItemId((current) => current === item.id ? null : current)}
+        onFocus={dragGhost ? undefined : () => setPreviewItemId(item.id)}
+        onKeyDown={dragGhost ? undefined : (event) => onItemKeyDown(event, item.id)}
       >
         <span className="item-card">
           {geometry.cells.map((cell) => <span
@@ -717,13 +758,13 @@ export default function GameClient() {
           {isCharacter && phase === "combat" && spawner?.state !== "full" && <span className="spawn-cooldown-fill" aria-hidden="true" />}
           <span className="item-icon">{isCharacter ? <CharacterGlyph id={item.definitionId} /> : definition.icon}</span>
           {isCharacter && activeConnections.slice(0, 3).map(({ item: weapon }, index) => <span key={weapon.id} className={`equipped-weapon-mini equipped-weapon-mini-${index}`} aria-hidden="true">{ITEM_DEFINITIONS[weapon.definitionId].icon}</span>)}
-          <span id={detailId} className="inventory-item-details" role="tooltip">
+          {!dragGhost && <span id={detailId} className="inventory-item-details" role="tooltip">
             <strong>{definition.name} · T{item.tier}</strong>
             <span>{definition.description}</span>
             {isCharacter && <span className="inventory-stat-detail">{characterStats}</span>}
             {penaltyDetail && <span className="inventory-penalty-detail">장착 패널티: {penaltyDetail}</span>}
             <span className="inventory-relation-detail">{activeRelationDetail}{squadDetail}</span>
-          </span>
+          </span>}
         </span>
       </button>
     );
@@ -756,6 +797,16 @@ export default function GameClient() {
   const selectedDefinition = selectedInventoryItem ? ITEM_DEFINITIONS[selectedInventoryItem.definitionId] : null;
   const selectedConnections = selectedInventoryItem && selectedDefinition?.kind === "character"
     ? getActiveWeaponConnections(selectedInventoryItem, gridItems, equipmentLinks)
+    : [];
+  const selectedPhysicalConnections = selectedInventoryItem && selectedDefinition?.kind === "character"
+    ? getAdjacentWeaponConnections(selectedInventoryItem, gridItems)
+    : [];
+  const selectedPhysicalCharacters = selectedInventoryItem && selectedDefinition?.kind === "weapon"
+    ? gridItems.filter((item) => isCharacterId(item.definitionId)
+      && getAdjacentWeaponConnections(item, gridItems).some(({ item: weapon }) => weapon.id === selectedInventoryItem.id))
+    : [];
+  const selectedEquippedCharacters = selectedInventoryItem && selectedDefinition?.kind === "weapon"
+    ? getCharactersSharingWeapon(selectedInventoryItem, gridItems, equipmentLinks)
     : [];
   const openSocketTargets = new Set(gridItems.flatMap((item) => getWorldSockets(item).flatMap((socket) => {
     const offsets: Record<Direction, [number, number]> = {
@@ -792,7 +843,7 @@ export default function GameClient() {
           {(phase === "preparation" || phase === "transition" || manualPaused) && <div className="battle-overlay">
             <div className="battle-overlay-card">
               <strong>{phase === "preparation" ? `웨이브 ${currentWave?.index ?? 1}` : phase === "transition" ? "웨이브 완료" : "일시정지"}</strong>
-              <p>{phase === "preparation" ? "캐릭터 옆에 무기를 붙이면 그 무기를 든 일꾼이 생성돼요." : phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>
+              <p>{phase === "preparation" ? "○가 향한 칸에 캐릭터를 맞대세요. T1은 무기 1개, T2는 2개, T3는 3개까지 장착돼요." : phase === "transition" ? "획득한 골드를 정리하고 있어요." : "설정에서 계속하기를 눌러 주세요."}</p>
               {phase === "preparation" && <button type="button" className="primary-action overlay-start-button" onClick={startWave}>웨이브 시작</button>}
             </div>
           </div>}
@@ -858,12 +909,6 @@ export default function GameClient() {
                 >{item && renderItem(item)}{socketTarget && <span className="socket-target-mark" aria-hidden="true">○</span>}</div>;
               })}
             </div>
-            {selectedInventoryItem && !isCharacterId(selectedInventoryItem.definitionId) && !inventoryLocked && <button
-              type="button"
-              className="rotate-item-button"
-              onClick={rotateSelectedItem}
-              aria-label={`${ITEM_DEFINITIONS[selectedInventoryItem.definitionId].name} 90도 회전`}
-            >↻ 회전</button>}
           </div>
           {selectedInventoryItem && selectedDefinition && <article className="selected-detail-panel" aria-live="polite">
             <div className={`selected-detail-icon tier-${selectedInventoryItem.tier}`}>{selectedDefinition.kind === "character" ? <CharacterGlyph id={selectedDefinition.id} /> : selectedDefinition.icon}</div>
@@ -871,14 +916,20 @@ export default function GameClient() {
               <strong>{selectedDefinition.name}</strong>
               <p>{selectedDefinition.description}</p>
               {selectedDefinition.kind === "character"
-                ? <span>HP {selectedDefinition.hp} · 이동 {selectedDefinition.moveSpeed} · 생성 {selectedDefinition.spawnCooldown.toFixed(1)}초 · 슬롯 {selectedDefinition.weaponSlots[selectedInventoryItem.tier]} · 장착 {selectedConnections.length}</span>
-                : <span>피해 {selectedDefinition.damage} · 사거리 {selectedDefinition.range} · 쿨타임 {selectedDefinition.cooldown.toFixed(1)}초{selectedDefinition.equipPenalty?.hpMultiplier ? ` · 체력 -${Math.round((1 - selectedDefinition.equipPenalty.hpMultiplier) * 100)}%` : ""}{selectedDefinition.equipPenalty?.moveSpeedMultiplier ? ` · 이동 -${Math.round((1 - selectedDefinition.equipPenalty.moveSpeedMultiplier) * 100)}%` : ""}</span>}
+                ? <span>HP {selectedDefinition.hp} · 이동 {selectedDefinition.moveSpeed} · 생성 {selectedDefinition.spawnCooldown.toFixed(1)}초 · 연결 {selectedPhysicalConnections.length} · 장착 {selectedConnections.length}/{selectedDefinition.weaponSlots[selectedInventoryItem.tier]} (청록) · 초과는 회색</span>
+                : <span>피해 {selectedDefinition.damage} · 사거리 {selectedDefinition.range} · 쿨타임 {selectedDefinition.cooldown.toFixed(1)}초 · 연결 {selectedPhysicalCharacters.length} · 장착 {selectedEquippedCharacters.length}명 (청록) · 초과는 회색{selectedDefinition.equipPenalty?.hpMultiplier ? ` · 체력 -${Math.round((1 - selectedDefinition.equipPenalty.hpMultiplier) * 100)}%` : ""}{selectedDefinition.equipPenalty?.moveSpeedMultiplier ? ` · 이동 -${Math.round((1 - selectedDefinition.equipPenalty.moveSpeedMultiplier) * 100)}%` : ""}</span>}
+              {selectedDefinition.kind === "weapon" && !inventoryLocked && <button
+                type="button"
+                className="rotate-item-button selected-detail-action"
+                onClick={rotateSelectedItem}
+                aria-label={`${selectedDefinition.name} 90도 회전`}
+              >↻ 회전</button>}
             </div>
           </article>}
         </section>
 
         <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone === "normal" ? "" : toast.tone}`}>{toast.copy}</div>)}</div>
-        {drag?.moved && <div className="drag-ghost" style={{ left: drag.x, top: drag.y }}>{renderItem(gridItems.find((item) => item.id === drag.id)!)}</div>}
+        {drag?.moved && <div className="drag-ghost" aria-hidden="true" style={{ left: drag.x, top: drag.y, width: drag.sourceWidth, height: drag.sourceHeight }}>{renderItem(gridItems.find((item) => item.id === drag.id)!, { dragGhost: true })}</div>}
 
         {report && (phase === "victory" || phase === "defeat") && <div className="modal-backdrop"><section className={`report-modal ${report.result}`} role="dialog" aria-modal="true" aria-labelledby="report-title">
           <div className="report-hero"><div className="report-emblem">{report.result === "victory" ? "🏆" : "🛡️"}</div><span className="modal-kicker">Run complete</span><h2 className="modal-title" id="report-title">{report.result === "victory" ? "보스를 쓰러뜨렸어요!" : "기지를 지키지 못했어요"}</h2></div>

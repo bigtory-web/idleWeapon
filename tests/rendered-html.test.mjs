@@ -49,12 +49,18 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(client, /"item-segment",/);
   assert.match(client, /equipped-weapon-mini/);
   assert.match(client, /connection-inactive/);
-  assert.match(client, /className="rotate-item-button"/);
+  assert.match(client, /className="rotate-item-button selected-detail-action"/);
   assert.match(client, /reconcileEquipmentLinks/);
   assert.match(client, /getActiveWeaponConnections/);
   assert.match(client, /className="socket-target-mark"/);
   assert.match(client, /무기 슬롯/);
   assert.match(client, /장착 패널티/);
+  assert.match(client, /const dragRef = useRef<DragState \| null>/);
+  assert.match(client, /const dropTargetRef = useRef<string \| null>/);
+  assert.match(client, /const finalTarget = element\?\.dataset\.dropTarget \?\? dropTargetRef\.current/);
+  assert.match(client, /renderItem\(gridItems\.find\(\(item\) => item\.id === drag\.id\)!\, \{ dragGhost: true \}\)/);
+  assert.match(client, /○가 향한 칸에 캐릭터를 맞대세요/);
+  assert.match(client, /초과는 회색/);
   assert.doesNotMatch(client, /className="tier-badge"|className="item-name-mini"/);
   assert.match(styles, /\.tier-1[^{}]*\{[^}]*#aeb3bc/s);
   assert.match(styles, /\.tier-2[^{}]*\{[^}]*#5bc9ff/s);
@@ -63,6 +69,8 @@ test("inventory uses tier borders, connection marks, actual cooldown, and spawn 
   assert.match(styles, /\.socket-target-cell/);
   assert.match(styles, /\.grid-item\.linked-active/);
   assert.match(styles, /\.selected-detail-panel/);
+  assert.match(styles, /\.command-panel\s*\{[^}]*flex:\s*1 1 auto/s);
+  assert.match(styles, /\.drag-ghost \.grid-item\s*\{[^}]*inset:\s*0/s);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
