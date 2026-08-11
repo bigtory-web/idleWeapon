@@ -2036,19 +2036,6 @@ textarea:focus-visible {
   background: repeating-linear-gradient(135deg, rgba(63,22,40,.88) 0 7px, rgba(31,15,31,.94) 7px 14px);
 }
 
-.locked-outpost-cell {
-  border-color: rgba(255,107,125,.48) !important;
-  background: radial-gradient(circle, rgba(255,107,125,.17), rgba(24,16,31,.92) 68%) !important;
-}
-
-.locked-outpost {
-  color: rgba(255,225,230,.92);
-  font-size: 18px;
-  filter: none;
-  text-shadow: 0 0 8px rgba(255,107,125,.55);
-  pointer-events: none;
-}
-
 /* The footprint surface owns the complete item silhouette. Segment borders
    stay geometry-only so long weapons do not show stray marks around the icon. */
 .grid-item .item-segment,

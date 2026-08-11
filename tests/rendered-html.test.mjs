@@ -97,7 +97,7 @@ test("inventory uses a locked 42px 7x5 board, continuous footprints, adjacency h
   assert.match(styles, /\.fixed-hover-sharing/);
   assert.match(client, /locked-cell/);
   assert.doesNotMatch(client, /permanent-locked-cell|cell-lock|🔒/);
-  assert.match(client, /className="locked-outpost"/);
+  assert.doesNotMatch(client, /locked-outpost|🏰/);
   assert.doesNotMatch(client, /enemy-zone-cell|enemy-zone-mark|>♜</);
   assert.match(client, /phaseRef\.current === "combat" \? liveSnapshot/);
   assert.match(styles, /\.grid-item \.item-segment,[\s\S]*border:\s*0 !important/);
@@ -135,7 +135,6 @@ test("renderer uses an orthographic board projection and density limits", async 
   assert.match(renderer, /unit\.isStructure/);
   assert.match(renderer, /point\.scale \* 1\.35/);
   assert.match(renderer, /unit\.isStructure \? 1\.38 : 1/);
-  assert.match(renderer, /fillText\("적 기지"/);
   assert.match(renderer, /fillStyle = "#24173f"/);
   assert.match(renderer, /drawAbsorbingWeapon/);
   assert.match(renderer, /getSpawnArrivalProgress/);
@@ -160,19 +159,15 @@ test("preparation and shop share one external battle button and shop prices sit 
   assert.match(styles, /\.shop-buy-button\s*\{[^}]*font-size:\s*13px/s);
 });
 
-test("wave-one outposts use shared bag and battlefield coordinates", async () => {
-  const [client, layout] = await Promise.all([
+test("all seven columns start open and no outpost system is rendered or spawned", async () => {
+  const [client, engine, types] = await Promise.all([
     readFile(new URL("../app/GameClient.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../lib/game/battle-layout.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/engine.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/game/types.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(layout, /battleColumn:\s*3/);
-  assert.match(layout, /battleColumn:\s*5/);
-  assert.match(layout, /rows:\s*\[1, 3\]/);
-  assert.match(layout, /hp:\s*90/);
-  assert.match(layout, /waveIndex === 1/);
-  assert.match(client, /createOutpostPreview/);
-  assert.match(client, /getWaveOutpostObjectives/);
-  assert.match(client, /getBattleCellPosition/);
+  assert.match(types, /STARTING_UNLOCKED_COLUMNS = 7/);
+  assert.doesNotMatch(client, /createOutpostPreview|getWaveOutpostObjectives|locked-outpost|🏰/);
+  assert.doesNotMatch(engine, /spawnWaveOutposts|objectiveUnlockColumn|board-column-unlocked/);
 });
 
 test("combat rendering is throttled and static phases repaint only when dirty", async () => {

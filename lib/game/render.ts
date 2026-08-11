@@ -459,16 +459,6 @@ function drawUnit(
   }
   context.restore();
 
-  if (unit.isStructure) {
-    context.save();
-    context.fillStyle = "#ffd6dc";
-    context.font = '800 9px Pretendard, "Noto Sans KR", sans-serif';
-    context.textAlign = "center";
-    context.textBaseline = "top";
-    context.fillText("적 기지", unit.x, unit.y + 7);
-    context.restore();
-  }
-
   if (unit.side === "ally" && unit.weapons) {
     for (let index = 0; index < unit.weapons.length; index += 1) {
       if (spawning) drawAbsorbingWeapon(context, unit, unit.weapons[index], index, spawnProgress);

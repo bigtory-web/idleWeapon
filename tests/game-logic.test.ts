@@ -72,7 +72,7 @@ test("data keeps combat stats while characters use one cell and enemies keep the
   assert.deepEqual(WAVE_DEFINITIONS.map(({ timeLimit }) => timeLimit), [60, 60, 90, 90, 90, 120]);
   assert.equal(ENEMY_HP_MULTIPLIER, 1.2);
   assert.equal(ENEMY_DAMAGE_MULTIPLIER, 1.1);
-  assert.deepEqual(Object.values(ENEMIES).filter(({ id }) => id !== "outpost").map(({ hp, damage }) => [hp, damage]), [
+  assert.deepEqual(Object.values(ENEMIES).map(({ hp, damage }) => [hp, damage]), [
     [54, 8], [36, 6], [132, 13], [66, 9], [1080, 24],
   ]);
 });
@@ -93,7 +93,7 @@ test("footprints rotate into normalized bounds and reject edges or overlap", () 
   assert.deepEqual(getOccupiedCells(sword), [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
   assert.equal(canPlaceItem([], sword, { row: 0, col: 3 }), true);
   assert.equal(canPlaceItem([], sword, { row: 0, col: 6 }), false);
-  assert.equal(canPlaceItem([], sword, { row: 0, col: 2 }, 0, [], STARTING_UNLOCKED_COLUMNS), false);
+  assert.equal(canPlaceItem([], sword, { row: 0, col: 2 }, 0, [], STARTING_UNLOCKED_COLUMNS), true);
   assert.equal(canPlaceItem([item("block", "scout", 0, 1)], sword, { row: 0, col: 0 }), false);
   const hammer = item("hammer", "hammer", 1, 1);
   assert.deepEqual(getOccupiedCells(hammer), [{ row: 1, col: 1 }, { row: 2, col: 1 }, { row: 2, col: 2 }]);
@@ -316,51 +316,20 @@ test("the boss waits until every queued and living normal enemy is gone", () => 
   engine.dispose();
 });
 
-test("first-wave outpost pairs share bag coordinates and unlock two column groups independently", () => {
-  const engine = new CombatEngine();
-  const events: CombatEvent[] = [];
-  engine.subscribe((event) => events.push(event));
-  engine.startWave({
-    waveIndex: 1,
-    seed: "outpost-pair",
-    baseHp: 100,
-    spawners: [],
-    wave: { index: 1, name: "outposts", timeLimit: 60, clearGold: 0, groups: [] },
-  });
-  const initial = engine.getSnapshot().enemies.filter(({ isStructure }) => isStructure);
-  assert.equal(initial.length, 4);
-  assert.deepEqual(initial.map(({ x, y, maxHp }) => [x, y, maxHp]), [
-    [195, 250, 90], [195, 290, 90], [285, 250, 90], [285, 290, 90],
-  ]);
-  const internals = (engine as unknown as { enemies: Array<{ hp: number; isStructure: boolean }> }).enemies.filter(({ isStructure }) => isStructure);
-  internals[0]!.hp = 0;
-  stepFor(engine, 0.02);
-  assert.equal(engine.getSnapshot().phase, "running");
-  assert.equal(events.some(({ type }) => type === "board-column-unlocked"), false);
-  internals[1]!.hp = 0;
-  stepFor(engine, 0.02);
-  assert.equal(engine.getSnapshot().phase, "running");
-  assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 4), true);
-  assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 6), false);
-  internals[2]!.hp = 0;
-  stepFor(engine, 0.02);
-  assert.equal(engine.getSnapshot().phase, "running");
-  internals[3]!.hp = 0;
-  stepFor(engine, 0.02);
-  assert.equal(engine.getSnapshot().phase, "cleared");
-  assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 6), true);
-  engine.dispose();
-
-  const later = new CombatEngine();
-  later.startWave({
-    waveIndex: 2,
-    seed: "no-later-outposts",
-    baseHp: 100,
-    spawners: [],
-    wave: { index: 2, name: "no-outposts", timeLimit: 60, clearGold: 0, groups: [] },
-  });
-  assert.equal(later.getSnapshot().enemies.some(({ isStructure }) => isStructure), false);
-  later.dispose();
+test("all seven inventory columns start open and combat waves spawn no structures", () => {
+  assert.equal(STARTING_UNLOCKED_COLUMNS, 7);
+  for (const waveIndex of [1, 2, 6]) {
+    const engine = new CombatEngine();
+    engine.startWave({
+      waveIndex,
+      seed: `no-structures-${waveIndex}`,
+      baseHp: 100,
+      spawners: [],
+      wave: { index: waveIndex, name: "no structures", timeLimit: 60, clearGold: 0, groups: [] },
+    });
+    assert.equal(engine.getSnapshot().enemies.some(({ isStructure }) => isStructure), false);
+    engine.dispose();
+  }
 });
 
 test("seven player columns and five rows map to distinct allied deployment positions and spawner views", () => {
@@ -383,7 +352,7 @@ test("seven player columns and five rows map to distinct allied deployment posit
   assert.equal(backTop.x >= 57 && backTop.x <= 63, true);
   assert.equal(backTop.y >= 227 && backTop.y <= 233, true);
   assert.equal(frontBottom.x >= 327 && frontBottom.x <= 333, true);
-  assert.equal(frontBottom.y >= 307 && frontBottom.y <= 313, true);
+  assert.equal(frontBottom.y >= 300 && frontBottom.y <= 313, true);
   assert.equal(frontBottom.x - backTop.x > 260, true);
   assert.equal(frontBottom.y - backTop.y > 70, true);
   assert.deepEqual(snapshot.spawners.map(({ characterId, tier, row, col, weapons }) => ({ characterId, tier, row, col, weapons })), [

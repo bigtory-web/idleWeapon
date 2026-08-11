@@ -188,18 +188,6 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
 
 /** Enemy stats are prototype tuning values; the requested compositions are fixed below. */
 export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
-  outpost: {
-    id: "outpost",
-    name: "적 기지",
-    icon: "🏴",
-    color: "#ff6b7d",
-    hp: 1,
-    moveSpeed: 0,
-    damage: 0,
-    cooldown: 99,
-    range: 0,
-    isStructure: true,
-  },
   grunt: {
     id: "grunt",
     name: "졸개",

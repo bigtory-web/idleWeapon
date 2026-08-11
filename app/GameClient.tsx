@@ -18,7 +18,6 @@ import {
   WAVE_DEFINITIONS,
   isCharacterId,
 } from "@/lib/game/data";
-import { getBattleCellPosition, getWaveOutpostObjectives } from "@/lib/game/battle-layout";
 import { CombatEngine } from "@/lib/game/engine";
 import {
   autoMergeInventory,
@@ -47,7 +46,6 @@ import {
   type BattleSpeed,
   type CombatMetrics,
   type CombatSnapshot,
-  type CombatUnitView,
   type GamePhase,
   type GridItem,
   type GridPosition,
@@ -140,27 +138,6 @@ function createIdleSnapshot(baseHp = BASE_HP): CombatSnapshot {
   };
 }
 
-function createOutpostPreview(waveIndex: number): CombatUnitView[] {
-  return getWaveOutpostObjectives(waveIndex).flatMap((objective) => objective.rows.map((row) => {
-    const position = getBattleCellPosition(row, objective.battleColumn);
-    return {
-      id: `preview-outpost-${objective.unlockColumn}-${row}`,
-      side: "enemy" as const,
-      definitionId: "outpost" as const,
-      name: "적 기지",
-      tier: 1 as const,
-      x: position.x,
-      y: position.y,
-      hp: objective.hp,
-      maxHp: objective.hp,
-      facing: -1 as const,
-      isStructure: true,
-      flash: 0,
-      spawnGlow: 0,
-    };
-  }));
-}
-
 function addRecord(target: Record<string, number>, source: Record<string, number>) {
   const next = { ...target };
   for (const [key, value] of Object.entries(source)) next[key] = (next[key] ?? 0) + value;
@@ -224,7 +201,6 @@ export default function GameClient() {
 
   const phaseRef = useRef(phase);
   const renderDirtyRef = useRef(true);
-  const waveCursorRef = useRef(waveCursor);
   const gridRef = useRef(gridItems);
   const seedRef = useRef(seed);
   const snapshotRef = useRef(snapshot);
@@ -237,7 +213,7 @@ export default function GameClient() {
   const unlockedColumnsRef = useRef<number>(STARTING_UNLOCKED_COLUMNS);
 
   useEffect(() => { phaseRef.current = phase; renderDirtyRef.current = true; }, [phase]);
-  useEffect(() => { waveCursorRef.current = waveCursor; renderDirtyRef.current = true; }, [waveCursor]);
+  useEffect(() => { renderDirtyRef.current = true; }, [waveCursor]);
   useEffect(() => { gridRef.current = gridItems; renderDirtyRef.current = true; }, [gridItems]);
   useEffect(() => { seedRef.current = seed; }, [seed]);
   useEffect(() => { snapshotRef.current = snapshot; renderDirtyRef.current = true; }, [snapshot]);
@@ -354,11 +330,6 @@ export default function GameClient() {
       if (event.type === "snapshot") {
         snapshotRef.current = event.snapshot;
         setSnapshot(event.snapshot);
-      } else if (event.type === "board-column-unlocked") {
-        const nextColumns = Math.max(unlockedColumnsRef.current, event.column + 1);
-        unlockedColumnsRef.current = nextColumns;
-        setUnlockedColumns(nextColumns);
-        showToast(`${event.column + 1}열이 해금됐어요!`, "success");
       } else if (event.type === "wave-cleared") {
         totalsRef.current = addMetrics(totalsRef.current, event.metrics);
         const snap = engine.getSnapshot();
@@ -427,8 +398,6 @@ export default function GameClient() {
       const context = canvas.getContext("2d");
       if (context) {
         const liveSnapshot = snapshotRef.current;
-        const previewingBoard = phaseRef.current === "preparation" || phaseRef.current === "shop";
-        const previewWaveIndex = WAVE_DEFINITIONS[waveCursorRef.current]?.index ?? 1;
         const renderSnapshot = phaseRef.current === "combat" ? liveSnapshot : {
           ...liveSnapshot,
           spawners: deriveSpawnerBlueprints(gridRef.current).map((blueprint) => ({
@@ -445,7 +414,6 @@ export default function GameClient() {
             maxActive: blueprint.maxActive,
             state: "ready" as const,
           })),
-          enemies: previewingBoard ? createOutpostPreview(previewWaveIndex) : liveSnapshot.enemies,
         };
         renderBattle(context, renderSnapshot, {
           width: 390,
@@ -929,22 +897,16 @@ export default function GameClient() {
                 const target = `grid:${position.row}:${position.col}`;
                 const previewed = dropPreview?.cells.some((cell) => positionsEqual(cell, position));
                 const locked = position.col >= unlockedColumns && position.col < PLAYER_DEPLOY_COLUMNS;
-                const outpostCell = locked
-                  && (position.col === 3 || position.col === 5)
-                  && (position.row === 1 || position.row === 3);
                 return <div
                   key={target}
                   className={[
                     "grid-cell",
                     occupant ? "occupied-cell" : "",
                     locked ? "locked-cell" : "",
-                    outpostCell ? "locked-outpost-cell" : "",
                     previewed ? (dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
                   ].filter(Boolean).join(" ")}
                   data-drop-target={!locked ? target : undefined}
-                >{item && renderItem(item)}{outpostCell
-                    ? <span className="locked-outpost" aria-hidden="true">🏰</span>
-                    : null}</div>;
+                >{item && renderItem(item)}</div>;
               })}
             </div>
           </div>

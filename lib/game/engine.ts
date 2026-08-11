@@ -9,12 +9,11 @@ import {
   WEAPONS as RAW_WEAPONS,
   WEAPON_DAMAGE_MULTIPLIER,
 } from "./data";
-import { getAllyDeployPosition, getBattleCellPosition, getWaveOutpostObjectives } from "./battle-layout";
+import { getAllyDeployPosition, getBattleCellPosition } from "./battle-layout";
 import {
   BATTLEFIELD_COLUMNS,
   GRID_ROWS,
   PLAYER_DEPLOY_COLUMNS,
-  type BoardUnlockColumn,
   type CombatEvent,
   type CombatSnapshot,
   type SpawnerBlueprint,
@@ -174,7 +173,6 @@ interface EnemyUnit extends BaseUnit {
   targetPriority: "nearest" | "lowest-max-hp";
   approachMoveMultiplier: number;
   baseDamageMultiplier: number;
-  objectiveUnlockColumn?: BoardUnlockColumn;
 }
 
 interface InternalProjectile {
@@ -326,8 +324,6 @@ export class CombatEngine {
   private pendingEnemies: PendingEnemy[] = [];
   private pendingBosses: PendingEnemy[] = [];
   private enemySpawnCooldown = 0;
-  private objectiveUnlockColumns: BoardUnlockColumn[] = [];
-  private objectiveUnlockEmitted = new Set<BoardUnlockColumn>();
   private spawners: InternalSpawner[] = [];
   private allies: AllyUnit[] = [];
   private enemies: EnemyUnit[] = [];
@@ -368,8 +364,6 @@ export class CombatEngine {
     this.pendingEnemies = [];
     this.pendingBosses = [];
     this.enemySpawnCooldown = 0;
-    this.objectiveUnlockColumns = getWaveOutpostObjectives(normalized.waveIndex).map(({ unlockColumn }) => unlockColumn);
-    this.objectiveUnlockEmitted.clear();
     this.allies = [];
     this.enemies = [];
     this.projectiles = [];
@@ -385,7 +379,6 @@ export class CombatEngine {
       });
 
     this.queueWaveEnemies();
-    this.spawnWaveOutposts();
     this.tickEnemySpawns(0);
     this.updatePeaks();
     this.emitSnapshot(true);
@@ -937,41 +930,6 @@ export class CombatEngine {
     this.addEffect("spawn", ENEMY_SPAWN_X, y, 0.35);
   }
 
-  private spawnWaveOutposts(): void {
-    for (const objective of getWaveOutpostObjectives(this.waveIndex)) {
-      for (const row of objective.rows) {
-        const position = getBattleCellPosition(row, objective.battleColumn);
-        this.enemies.push({
-          id: this.nextId("outpost"),
-          side: "enemy",
-          definitionId: "outpost",
-          name: "적 기지",
-          tier: 1,
-          x: position.x,
-          y: position.y,
-          hp: objective.hp,
-          maxHp: objective.hp,
-          moveSpeed: 0,
-          facing: -1,
-          flash: 0,
-          spawnGlow: 0.3,
-          damage: 0,
-          attackCooldown: 99,
-          cooldownDuration: 99,
-          range: 0,
-          armor: 0,
-          isBoss: false,
-          isStructure: true,
-          targetPriority: "nearest",
-          approachMoveMultiplier: 1,
-          baseDamageMultiplier: 1,
-          objectiveUnlockColumn: objective.unlockColumn,
-        });
-        this.addEffect("spawn", position.x, position.y, 0.45);
-      }
-    }
-  }
-
   private damageUnit(unit: BaseUnit, rawDamage: number, sourceDefinitionId: string, armorPierce = 0): void {
     if (unit.hp <= 0) return;
     const armor = unit.side === "enemy" ? Math.max(0, (unit as EnemyUnit).armor - armorPierce) : 0;
@@ -999,12 +957,6 @@ export class CombatEngine {
       for (const enemy of defeated) {
         this.metrics.enemiesDefeated[enemy.definitionId] = (this.metrics.enemiesDefeated[enemy.definitionId] ?? 0) + 1;
         this.addEffect("smash", enemy.x, enemy.y, enemy.isBoss ? 0.7 : 0.36);
-      }
-      for (const column of this.objectiveUnlockColumns) {
-        if (this.objectiveUnlockEmitted.has(column)) continue;
-        if (this.enemies.some((enemy) => enemy.isStructure && enemy.hp > 0 && enemy.objectiveUnlockColumn === column)) continue;
-        this.objectiveUnlockEmitted.add(column);
-        this.emit({ type: "board-column-unlocked", waveIndex: this.waveIndex, column });
       }
     }
     if (this.allies.some((ally) => ally.hp <= 0)) {

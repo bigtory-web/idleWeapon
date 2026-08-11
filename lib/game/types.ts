@@ -1,7 +1,7 @@
 export const INVENTORY_COLUMNS = 7 as const;
 export const PLAYER_DEPLOY_COLUMNS = 7 as const;
 export const BATTLEFIELD_COLUMNS = 7 as const;
-export const STARTING_UNLOCKED_COLUMNS = 3 as const;
+export const STARTING_UNLOCKED_COLUMNS = 7 as const;
 export const GRID_ROWS = 5 as const;
 
 export type Tier = 1 | 2 | 3;
@@ -15,7 +15,7 @@ export type GamePhase =
 
 export type CharacterId = "shieldbearer" | "scout" | "sharpshooter";
 export type WeaponId = "sword" | "bow" | "hammer" | "wand";
-export type EnemyId = "grunt" | "runner" | "armored" | "thrower" | "boss" | "outpost";
+export type EnemyId = "grunt" | "runner" | "armored" | "thrower" | "boss";
 export type ItemId = CharacterId | WeaponId;
 export type ItemKind = "character" | "weapon";
 export type Direction = "up" | "right" | "down" | "left";
@@ -285,14 +285,11 @@ export interface CombatSnapshot {
 }
 
 export type DefeatReason = "base-destroyed" | "timeout";
-export type BoardUnlockColumn = 4 | 6;
-
 export type CombatEvent =
   | { type: "snapshot"; snapshot: CombatSnapshot }
   | { type: "hud"; hud: CombatHud }
   | { type: "ally-spawned"; spawnerId: string; weaponItemIds: string[] }
   | { type: "wave-cleared"; waveIndex: number; goldEarned: number; metrics: CombatMetrics }
-  | { type: "board-column-unlocked"; waveIndex: number; column: BoardUnlockColumn }
   | {
       type: "defeat";
       reason: DefeatReason;
