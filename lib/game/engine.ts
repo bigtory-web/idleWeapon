@@ -39,6 +39,8 @@ const PROJECTILE_CAP = MAX_PROJECTILES;
 const FIXED_STEP = 1 / 60;
 const SNAPSHOT_INTERVAL = 0.2;
 export const ENEMY_SPAWN_INTERVAL = 0.15;
+export const ALLY_MIN_SPACING = 14;
+export const ENEMY_MIN_SPACING = 16;
 
 type Tier = 1 | 2 | 3;
 type Direction = "up" | "down" | "left" | "right";
@@ -809,8 +811,10 @@ export class CombatEngine {
       if (distance > enemy.range) {
         const travel = Math.min(enemy.moveSpeed * enemy.approachMoveMultiplier * dt, Math.max(0, distance - enemy.range));
         this.moveUnitToward(enemy, targetX, targetY, travel);
+        this.applyEnemySeparation(enemy, dt);
         continue;
       }
+      this.applyEnemySeparation(enemy, dt);
       if (enemy.attackCooldown > 0) continue;
 
       if (enemy.range > 65) {
@@ -1273,12 +1277,26 @@ export class CombatEngine {
       const dx = ally.x - other.x;
       const dy = ally.y - other.y;
       const distance = Math.hypot(dx, dy);
-      if (distance <= 0 || distance >= 10) continue;
-      const push = Math.min((10 - distance) * 0.5, 18 * dt);
+      if (distance <= 0 || distance >= ALLY_MIN_SPACING) continue;
+      const push = Math.min((ALLY_MIN_SPACING - distance) * 0.6, 24 * dt);
       ally.x += (dx / distance) * push;
       ally.y += (dy / distance) * push;
     }
     ally.y = clamp(ally.y, 226, 314);
+  }
+
+  private applyEnemySeparation(enemy: EnemyUnit, dt: number): void {
+    for (const other of this.enemies) {
+      if (other.id === enemy.id || other.hp <= 0) continue;
+      const dx = enemy.x - other.x;
+      const dy = enemy.y - other.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance <= 0 || distance >= ENEMY_MIN_SPACING) continue;
+      const push = Math.min((ENEMY_MIN_SPACING - distance) * 0.7, 30 * dt);
+      enemy.x += (dx / distance) * push;
+      enemy.y += (dy / distance) * push;
+    }
+    enemy.y = clamp(enemy.y, 226, 314);
   }
 
   private rowForY(y: number): number {

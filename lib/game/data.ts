@@ -16,8 +16,9 @@ export const BASE_HP = 100;
 export const DEFAULT_SEED = "prototype-001";
 export const MAX_UNITS = 160;
 export const MAX_PROJECTILES = 400;
+export const LATER_WAVE_ENEMY_COUNT_MULTIPLIER = 0.7;
 
-/** Global enemy-only tuning: keep wave composition and behavior unchanged. */
+/** Global enemy stat tuning; later-wave headcounts are reduced separately below. */
 export const ENEMY_HP_MULTIPLIER = 1.2;
 export const ENEMY_DAMAGE_MULTIPLIER = 1.1;
 
@@ -63,12 +64,12 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     shopPrice: 9,
     description: "튼튼한 전열. 근접 무기를 특히 잘 다룹니다.",
     hp: 180,
-    moveSpeed: 34,
+    moveSpeed: 27,
     spawnCooldown: 6,
     meleeDamageMultiplier: 1.25,
     rangedDamageMultiplier: 0.9,
     rangeMultiplier: 1,
-    squadCaps: { 1: 2, 2: 3, 3: 5 },
+    squadCaps: { 1: 1, 2: 1, 3: 1 },
     combatRole: "guard",
     footprint: [{ row: 0, col: 0 }],
   },
@@ -81,12 +82,12 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     shopPrice: 7,
     description: "약하지만 빠르게 증원되는 기동형 일꾼입니다.",
     hp: 80,
-    moveSpeed: 52,
+    moveSpeed: 42,
     spawnCooldown: 3.8,
     meleeDamageMultiplier: 0.85,
     rangedDamageMultiplier: 0.85,
     rangeMultiplier: 1,
-    squadCaps: { 1: 4, 2: 6, 3: 9 },
+    squadCaps: { 1: 2, 2: 4, 3: 6 },
     combatRole: "flanker",
     footprint: [{ row: 0, col: 0 }],
   },
@@ -99,7 +100,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDefinition> = {
     shopPrice: 8,
     description: "원거리 무기의 피해와 사거리를 크게 높입니다.",
     hp: 90,
-    moveSpeed: 38,
+    moveSpeed: 30,
     spawnCooldown: 5.2,
     meleeDamageMultiplier: 0.8,
     rangedDamageMultiplier: 1.3,
@@ -238,7 +239,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     icon: "👺",
     color: "#90c46b",
     hp: scaleEnemyHp(45),
-    moveSpeed: 22,
+    moveSpeed: 18,
     damage: scaleEnemyDamage(7),
     cooldown: 1,
     range: 24,
@@ -249,7 +250,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     icon: "🦎",
     color: "#d9e36c",
     hp: scaleEnemyHp(30),
-    moveSpeed: 42,
+    moveSpeed: 34,
     damage: scaleEnemyDamage(5),
     cooldown: 0.7,
     range: 22,
@@ -261,7 +262,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     icon: "🪖",
     color: "#78988e",
     hp: scaleEnemyHp(110),
-    moveSpeed: 16,
+    moveSpeed: 13,
     damage: scaleEnemyDamage(12),
     cooldown: 1.3,
     range: 26,
@@ -273,7 +274,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     icon: "💀",
     color: "#b6a2dd",
     hp: scaleEnemyHp(55),
-    moveSpeed: 19,
+    moveSpeed: 15,
     damage: scaleEnemyDamage(8),
     cooldown: 1.4,
     range: 145,
@@ -285,7 +286,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
     icon: "👹",
     color: "#e45a7a",
     hp: scaleEnemyHp(900),
-    moveSpeed: 12,
+    moveSpeed: 10,
     damage: scaleEnemyDamage(22),
     cooldown: 1.2,
     range: 38,
@@ -295,7 +296,7 @@ export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
   },
 };
 
-export const WAVE_DEFINITIONS: WaveDefinition[] = [
+const BASE_WAVE_DEFINITIONS: WaveDefinition[] = [
   {
     index: 1,
     name: "먼지바람의 전조",
@@ -375,6 +376,34 @@ export const WAVE_DEFINITIONS: WaveDefinition[] = [
     ],
   },
 ];
+
+function reduceLaterWaveEnemies(wave: WaveDefinition): WaveDefinition {
+  if (wave.index < 2) return wave;
+
+  const normalEntries = wave.groups.flatMap((group) => group.enemies)
+    .filter((entry) => !ENEMIES[entry.enemyId]?.isBoss);
+  const originalTotal = normalEntries.reduce((total, entry) => total + entry.count, 0);
+  const targetTotal = Math.round(originalTotal * LATER_WAVE_ENEMY_COUNT_MULTIPLIER);
+  let originalProgress = 0;
+  let reducedProgress = 0;
+
+  return {
+    ...wave,
+    groups: wave.groups.map((group) => ({
+      ...group,
+      enemies: group.enemies.map((entry) => {
+        if (ENEMIES[entry.enemyId]?.isBoss) return entry;
+        originalProgress += entry.count;
+        const nextReducedProgress = Math.round((originalProgress / originalTotal) * targetTotal);
+        const count = Math.max(0, nextReducedProgress - reducedProgress);
+        reducedProgress = nextReducedProgress;
+        return { ...entry, count };
+      }).filter((entry) => entry.count > 0),
+    })),
+  };
+}
+
+export const WAVE_DEFINITIONS: WaveDefinition[] = BASE_WAVE_DEFINITIONS.map(reduceLaterWaveEnemies);
 
 /** Row/column values are zero-based. */
 export const STARTING_INVENTORY: GridItem[] = [

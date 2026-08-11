@@ -34,6 +34,8 @@ test("header speed, compact canvas base health, and direct-purchase shop replace
     readFile(new URL("../lib/game/render.ts", import.meta.url), "utf8"),
   ]);
   assert.match(client, /className="header-combat-info"/);
+  assert.match(client, />보유 골드<\/span>/);
+  assert.match(client, /className="battle-time-display"/);
   assert.match(client, /className="speed-controls"/);
   assert.match(client, /\(\[0\.5, 1, 2\] as const\)/);
   assert.match(client, /className="shop-panel"/);
@@ -64,7 +66,10 @@ test("inventory uses a locked 42px 7x5 board, continuous footprints, adjacency h
   assert.match(client, /className="fixed-hover-icon"/);
   assert.match(client, /getActiveWeaponConnections/);
   assert.doesNotMatch(client, /socket-target-mark|openSocketTargets/);
-  assert.match(client, /장착 패널티/);
+  assert.match(client, /장착 효과/);
+  assert.match(client, /공격 속도/);
+  assert.match(client, /사거리/);
+  assert.doesNotMatch(client, /장착 무기:|인접 장착|공유 캐릭터/);
   assert.match(client, /const dragRef = useRef<DragState \| null>/);
   assert.match(client, /const dropTargetRef = useRef<string \| null>/);
   assert.match(client, /const finalTarget = element\?\.dataset\.dropTarget \?\? dropTargetRef\.current/);
@@ -93,15 +98,16 @@ test("inventory uses a locked 42px 7x5 board, continuous footprints, adjacency h
   assert.match(styles, /grid-template-rows:\s*repeat\(5, var\(--board-cell\)\)/);
   assert.doesNotMatch(styles, /\.inventory-grid \.grid-cell:nth-child\(odd\)/);
   assert.match(styles, /\.fixed-hover-help/);
-  assert.match(client, /className="fixed-hover-sharing"/);
-  assert.match(styles, /\.fixed-hover-sharing/);
+  assert.match(client, /className="fixed-hover-badge"/);
+  assert.match(styles, /\.fixed-hover-badge/);
   assert.match(client, /locked-cell/);
   assert.doesNotMatch(client, /permanent-locked-cell|cell-lock|🔒/);
   assert.doesNotMatch(client, /locked-outpost|🏰/);
   assert.doesNotMatch(client, /enemy-zone-cell|enemy-zone-mark|>♜</);
   assert.match(client, /phaseRef\.current === "combat" \? liveSnapshot/);
   assert.match(styles, /\.grid-item \.item-segment,[\s\S]*border:\s*0 !important/);
-  assert.match(styles, /grid-template-columns:\s*38px minmax\(0, 1fr\)/);
+  assert.match(styles, /grid-template-columns:\s*46px minmax\(0, 1fr\)/);
+  assert.match(styles, /min-height:\s*104px/);
   assert.doesNotMatch(client, /rotateGridItem|selectedWeaponId|rotate-item-button|inventory-item-details|spawn-linked-flash/);
   assert.doesNotMatch(styles, /spawn-sheen|spawn-linked-flash|inventory-item-details|rotate-item-button|inventory-action-row|\.grid-item\.rotation-selected/);
   assert.doesNotMatch(styles, /\.selected-detail-panel|\.character-glyph/);

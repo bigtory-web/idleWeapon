@@ -8,13 +8,14 @@ import {
   ENEMY_DAMAGE_MULTIPLIER,
   ENEMY_HP_MULTIPLIER,
   ENEMIES,
+  LATER_WAVE_ENEMY_COUNT_MULTIPLIER,
   STARTING_INVENTORY,
   WAVE_DEFINITIONS,
   WEAPONS,
   WEAPON_DAMAGE_MULTIPLIER,
   getWaveEnemyTotal,
 } from "../lib/game/data";
-import { CombatEngine, ENEMY_SPAWN_INTERVAL } from "../lib/game/engine";
+import { ALLY_MIN_SPACING, CombatEngine, ENEMY_MIN_SPACING, ENEMY_SPAWN_INTERVAL } from "../lib/game/engine";
 import { getAllyDeployPosition, getBattleCellPosition } from "../lib/game/battle-layout";
 import {
   canPlaceItem,
@@ -50,16 +51,16 @@ function stepFor(engine: CombatEngine, seconds: number): void {
 }
 
 test("data keeps combat stats while characters use one cell and enemies keep their tuning", () => {
-  assert.deepEqual([CHARACTERS.shieldbearer.hp, CHARACTERS.shieldbearer.moveSpeed, CHARACTERS.shieldbearer.spawnCooldown], [180, 34, 6]);
-  assert.deepEqual([CHARACTERS.scout.hp, CHARACTERS.scout.moveSpeed, CHARACTERS.scout.spawnCooldown], [80, 52, 3.8]);
-  assert.deepEqual([CHARACTERS.sharpshooter.hp, CHARACTERS.sharpshooter.moveSpeed, CHARACTERS.sharpshooter.spawnCooldown], [90, 38, 5.2]);
+  assert.deepEqual([CHARACTERS.shieldbearer.hp, CHARACTERS.shieldbearer.moveSpeed, CHARACTERS.shieldbearer.spawnCooldown], [180, 27, 6]);
+  assert.deepEqual([CHARACTERS.scout.hp, CHARACTERS.scout.moveSpeed, CHARACTERS.scout.spawnCooldown], [80, 42, 3.8]);
+  assert.deepEqual([CHARACTERS.sharpshooter.hp, CHARACTERS.sharpshooter.moveSpeed, CHARACTERS.sharpshooter.spawnCooldown], [90, 30, 5.2]);
   assert.deepEqual(CHARACTER_HP_AND_POWER_MULTIPLIER, { 1: 1, 2: 1.6, 3: 2.4 });
   assert.deepEqual(CHARACTER_SPAWN_COOLDOWN_MULTIPLIER, { 1: 1, 2: 0.9, 3: 0.8 });
-  assert.deepEqual(CHARACTERS.shieldbearer.squadCaps, { 1: 2, 2: 3, 3: 5 });
+  assert.deepEqual(CHARACTERS.shieldbearer.squadCaps, { 1: 1, 2: 1, 3: 1 });
   assert.deepEqual(CHARACTERS.shieldbearer.footprint, [{ row: 0, col: 0 }]);
   assert.deepEqual(CHARACTERS.scout.footprint, [{ row: 0, col: 0 }]);
   assert.deepEqual(CHARACTERS.sharpshooter.footprint, [{ row: 0, col: 0 }]);
-  assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 4, 2: 6, 3: 9 });
+  assert.deepEqual(CHARACTERS.scout.squadCaps, { 1: 2, 2: 4, 3: 6 });
   assert.deepEqual(CHARACTERS.sharpshooter.squadCaps, { 1: 2, 2: 3, 3: 5 });
   assert.deepEqual(Object.values(WEAPONS).map(({ footprint }) => footprint.length), [2, 3, 3, 2, 2, 2]);
   assert.deepEqual(Object.values(WEAPONS).map(({ damage, cooldown, range }) => [damage, cooldown, range]), [
@@ -68,13 +69,17 @@ test("data keeps combat stats while characters use one cell and enemies keep the
   assert.deepEqual(WEAPON_DAMAGE_MULTIPLIER, { 1: 1, 2: 1.7, 3: 2.7 });
   assert.equal(WEAPONS.sword.equipPenalty?.moveSpeedMultiplier, 0.94);
   assert.equal(WEAPONS.bow.equipPenalty?.hpMultiplier, 0.9);
-  assert.deepEqual(WAVE_DEFINITIONS.map(getWaveEnemyTotal), [18, 30, 26, 32, 48, 31]);
+  assert.equal(LATER_WAVE_ENEMY_COUNT_MULTIPLIER, 0.7);
+  assert.deepEqual(WAVE_DEFINITIONS.map(getWaveEnemyTotal), [18, 21, 18, 22, 34, 22]);
   assert.deepEqual(WAVE_DEFINITIONS.map(({ timeLimit }) => timeLimit), [60, 60, 90, 90, 90, 120]);
   assert.equal(ENEMY_HP_MULTIPLIER, 1.2);
   assert.equal(ENEMY_DAMAGE_MULTIPLIER, 1.1);
   assert.deepEqual(Object.values(ENEMIES).map(({ hp, damage }) => [hp, damage]), [
     [54, 8], [36, 6], [132, 13], [66, 9], [1080, 24],
   ]);
+  assert.deepEqual(Object.values(ENEMIES).map(({ moveSpeed }) => moveSpeed), [18, 34, 13, 15, 10]);
+  assert.equal(ALLY_MIN_SPACING, 14);
+  assert.equal(ENEMY_MIN_SPACING, 16);
 });
 
 test("footprints rotate into normalized bounds and reject edges or overlap", () => {
@@ -132,8 +137,8 @@ test("starting inventory keeps both character-to-weapon contacts", () => {
   const blueprints = deriveSpawnerBlueprints(STARTING_INVENTORY);
   const shieldbearer = blueprints.find(({ characterId }) => characterId === "shieldbearer")!;
   const scout = blueprints.find(({ characterId }) => characterId === "scout")!;
-  assert.equal(shieldbearer.maxActive, 2);
-  assert.equal(scout.maxActive, 4);
+  assert.equal(shieldbearer.maxActive, 1);
+  assert.equal(scout.maxActive, 2);
   assert.deepEqual(shieldbearer.weapons, [{ weaponId: "sword", tier: 1, direction: "left", sourceItemId: "start-sword" }]);
   assert.deepEqual(scout.weapons, [
     { weaponId: "bow", tier: 1, direction: "left", sourceItemId: "start-bow" },
@@ -283,7 +288,7 @@ test("spawners wait a full cooldown, report progress, and stop at squad capacity
   durableEnemy.damage = 0;
   durableEnemy.moveSpeed = 0;
   assert.equal(events.some(({ type }) => type === "ally-spawned"), false);
-  assert.deepEqual(engine.getSnapshot().spawners.map(({ progress, activeCount, maxActive }) => [progress, activeCount, maxActive]), [[0, 0, 4], [0, 0, 2]]);
+  assert.deepEqual(engine.getSnapshot().spawners.map(({ progress, activeCount, maxActive }) => [progress, activeCount, maxActive]), [[0, 0, 2], [0, 0, 1]]);
   stepFor(engine, 2);
   const progress = engine.getSnapshot().spawners.map(({ progress: value }) => value);
   assert.equal(progress[0]! > 0.52 && progress[0]! < 0.54, true);
@@ -295,8 +300,8 @@ test("spawners wait a full cooldown, report progress, and stop at squad capacity
   engine.resume("test");
   stepFor(engine, 14);
   const snapshot = engine.getSnapshot();
-  assert.deepEqual(snapshot.spawners.map(({ activeCount, maxActive, state }) => [activeCount, maxActive, state]), [[4, 4, "full"], [2, 2, "full"]]);
-  assert.equal(events.filter(({ type }) => type === "ally-spawned").length, 6);
+  assert.deepEqual(snapshot.spawners.map(({ activeCount, maxActive, state }) => [activeCount, maxActive, state]), [[2, 2, "full"], [1, 1, "full"]]);
+  assert.equal(events.filter(({ type }) => type === "ally-spawned").length, 3);
   engine.dispose();
 });
 

@@ -15,6 +15,7 @@ import {
   DEFAULT_SEED,
   ITEM_DEFINITIONS,
   STARTING_INVENTORY,
+  WEAPON_DAMAGE_MULTIPLIER,
   WAVE_DEFINITIONS,
   isCharacterId,
 } from "@/lib/game/data";
@@ -23,7 +24,6 @@ import {
   deriveSpawnerBlueprints,
   dropItemOnGrid,
   getActiveWeaponConnections,
-  getCharactersSharingWeapon,
   getGridItemAt,
   getOccupiedCells,
   getRotatedItemGeometry,
@@ -85,7 +85,7 @@ interface HoverHelp {
   title: string;
   description: string;
   detail?: string;
-  sharingCount?: number;
+  badge?: string;
 }
 
 interface ToastMessage {
@@ -664,15 +664,13 @@ export default function GameClient() {
     const isCharacter = definition.kind === "character";
     const geometry = getRotatedItemGeometry(item.definitionId, normalizeRotation(item.rotation));
     const activeConnections = isCharacter ? getActiveWeaponConnections(item, gridItems) : [];
-    const sharingCharacters = isCharacter ? [] : getCharactersSharingWeapon(item, gridItems);
     const spawner = snapshot.spawners.find((entry) => entry.id === item.id);
     const progress = phase === "combat" && isCharacter ? spawner?.progress ?? 0 : 0;
-    const squadDetail = spawner ? ` · 분대 ${spawner.activeCount}/${spawner.maxActive}` : "";
-    const activeRelationDetail = isCharacter
-      ? `장착 무기: ${activeConnections.length ? activeConnections.map(({ item: weapon }) => ITEM_DEFINITIONS[weapon.definitionId].name).join(", ") : "맨손"}`
-      : "인접 장착";
+    const squadDetail = spawner
+      ? `분대 ${spawner.activeCount}/${spawner.maxActive}`
+      : isCharacter ? `분대 최대 ${definition.squadCaps[item.tier]}` : "";
     const characterStats = isCharacter
-      ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초`
+      ? `HP ${definition.hp} · 이동 ${definition.moveSpeed}`
       : "";
     const penaltyDetail = !isCharacter && definition.equipPenalty
       ? [
@@ -688,13 +686,16 @@ export default function GameClient() {
         ? `활성 조합: ${activeCombos.map(({ name }) => name).join(", ")}`
         : "활성 조합 없음"
       : `조합식: ${getComboRecipesForWeapon(item.definitionId as WeaponId).map(({ name }) => name).join(", ")}`;
+    const weaponStats = !isCharacter
+      ? `공격력 ${Math.round(definition.damage * WEAPON_DAMAGE_MULTIPLIER[item.tier])} · 공격 속도 ${(1 / definition.cooldown).toFixed(2)}/초 · 사거리 ${definition.range} · 대상 ${definition.maxTargets}`
+      : "";
     const itemHelp: HoverHelp = {
       key: `item:${item.id}`,
       icon: definition.icon,
       title: `${definition.name} · T${item.tier}`,
       description: definition.description,
-      detail: [characterStats, penaltyDetail ? `장착 패널티: ${penaltyDetail}` : "", `${activeRelationDetail}${squadDetail}`, comboDetail].filter(Boolean).join(" · "),
-      sharingCount: isCharacter ? undefined : sharingCharacters.length,
+      detail: [characterStats, squadDetail, weaponStats, penaltyDetail ? `장착 효과: ${penaltyDetail}` : "", comboDetail].filter(Boolean).join(" · "),
+      badge: isCharacter ? `생성 ${definition.spawnCooldown.toFixed(1)}초` : undefined,
     };
     const showItemHelp = () => {
       setPreviewItemId(item.id);
@@ -725,7 +726,7 @@ export default function GameClient() {
           !dragGhost && previewItemId === item.id ? "previewing" : "",
         ].filter(Boolean).join(" ")}
         style={layoutStyle}
-        aria-label={`${definition.name} 티어 ${item.tier}. ${activeRelationDetail}${squadDetail}`}
+        aria-label={`${definition.name} 티어 ${item.tier}. ${squadDetail}`}
         aria-describedby="fixed-hover-help"
         aria-disabled={inventoryLocked}
         aria-expanded={!dragGhost && previewItemId === item.id}
@@ -800,7 +801,7 @@ export default function GameClient() {
         <header className="top-chrome">
           <div className="header-combat-info">
             <div><span>웨이브</span><strong>{currentWave?.index ?? 6}/6</strong></div>
-            <div><span>{phase === "combat" ? "남은 시간" : "제한 시간"}</span><strong className={timeRemaining < 10 && phase === "combat" ? "danger" : ""}>{formatTime(timeRemaining)}</strong></div>
+            <div><span>보유 골드</span><strong className="header-gold">● {gold}</strong></div>
           </div>
           <div className="top-actions">
             <div className="speed-controls" role="group" aria-label="전투 배속">
@@ -823,6 +824,10 @@ export default function GameClient() {
         </header>
 
         <section className="battle-panel" aria-label="자동 전투 화면">
+          {(phase === "preparation" || phase === "combat") && <div className="battle-time-display" aria-live="polite">
+            <span>{phase === "combat" ? "남은 시간" : "제한 시간"}</span>
+            <strong className={timeRemaining < 10 && phase === "combat" ? "danger" : ""}>{formatTime(timeRemaining)}</strong>
+          </div>}
           <div className="battle-canvas-wrap"><canvas ref={canvasRef} className="battle-canvas" aria-label="아군과 적군의 자동 전투" /><div className="battle-vignette" /></div>
 
           {(phase === "transition" || manualPaused) && <div className="battle-overlay">
@@ -839,16 +844,17 @@ export default function GameClient() {
                 const definition = ITEM_DEFINITIONS[offer.definitionId];
                 const purchasable = canPurchaseShopOffer(gridItems, gold, offer, unlockedColumns);
                 const shopDetail = definition.kind === "character"
-                  ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 생성 ${definition.spawnCooldown.toFixed(1)}초`
+                  ? `HP ${definition.hp} · 이동 ${definition.moveSpeed} · 분대 최대 ${definition.squadCaps[offer.tier]}`
                   : [definition.equipPenalty
-                    ? `장착 패널티: ${definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}`
-                    : "", `조합식: ${getComboRecipesForWeapon(definition.id as WeaponId).map(({ name }) => name).join(", ")}`].filter(Boolean).join(" · ");
+                    ? `장착 효과: ${definition.equipPenalty.hpMultiplier ? `체력 -${Math.round((1 - definition.equipPenalty.hpMultiplier) * 100)}%` : `이동 -${Math.round((1 - (definition.equipPenalty.moveSpeedMultiplier ?? 1)) * 100)}%`}`
+                    : "", `공격력 ${Math.round(definition.damage * WEAPON_DAMAGE_MULTIPLIER[offer.tier])} · 공격 속도 ${(1 / definition.cooldown).toFixed(2)}/초 · 사거리 ${definition.range} · 대상 ${definition.maxTargets}`, `조합식: ${getComboRecipesForWeapon(definition.id as WeaponId).map(({ name }) => name).join(", ")}`].filter(Boolean).join(" · ");
                 const shopHelp: HoverHelp = {
                   key: `shop:${offer.id}`,
                   icon: definition.icon,
                   title: `${definition.name} · T${offer.tier}`,
                   description: definition.description,
                   detail: shopDetail,
+                  badge: definition.kind === "character" ? `생성 ${definition.spawnCooldown.toFixed(1)}초` : undefined,
                 };
                 const showShopHelp = () => setHoverHelp(shopHelp);
                 const hideShopHelp = () => setHoverHelp((current) => current?.key === shopHelp.key ? null : current);
@@ -882,7 +888,7 @@ export default function GameClient() {
           </div>}
 
           {hoverHelp && <div id="fixed-hover-help" className="fixed-hover-help" role="tooltip">
-            {hoverHelp.sharingCount !== undefined && <span className="fixed-hover-sharing">공유 캐릭터 {hoverHelp.sharingCount}명</span>}
+            {hoverHelp.badge && <span className="fixed-hover-badge">{hoverHelp.badge}</span>}
             <span className="fixed-hover-icon" aria-hidden="true">{hoverHelp.icon}</span>
             <span className="fixed-hover-copy">
               <strong>{hoverHelp.title}</strong>

@@ -1314,6 +1314,10 @@ textarea:focus-visible {
   color: #ff7283;
 }
 
+.header-combat-info .header-gold {
+  color: #ffd568;
+}
+
 .top-chrome .icon-button {
   width: 32px;
   height: 32px;
@@ -1808,6 +1812,43 @@ textarea:focus-visible {
   bottom: 0;
 }
 
+.battle-time-display {
+  position: absolute;
+  z-index: 9;
+  top: 12px;
+  left: 50%;
+  display: grid;
+  min-width: 82px;
+  justify-items: center;
+  gap: 1px;
+  padding: 5px 12px 6px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 11px;
+  background: rgba(14,9,28,.72);
+  box-shadow: 0 5px 14px rgba(5,2,12,.26);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.battle-time-display span {
+  color: #b8abc9;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.battle-time-display strong {
+  color: #fff;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.battle-time-display strong.danger {
+  color: #ff7283;
+}
+
 .shop-panel {
   inset: 0;
   gap: 10px;
@@ -1893,11 +1934,11 @@ textarea:focus-visible {
   bottom: 12px;
   left: 12px;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: 46px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
-  min-height: 72px;
-  padding: 8px 11px;
+  min-height: 104px;
+  padding: 10px 12px;
   border: 1px solid rgba(210,186,238,.46);
   border-radius: 11px;
   background: rgba(16,10,29,.95);
@@ -1908,7 +1949,7 @@ textarea:focus-visible {
   pointer-events: none;
 }
 
-.fixed-hover-sharing {
+.fixed-hover-badge {
   position: absolute;
   top: 7px;
   right: 10px;
@@ -1923,25 +1964,26 @@ textarea:focus-visible {
 
 .fixed-hover-help strong {
   color: #fff;
-  font-size: 12px;
+  padding-right: 68px;
+  font-size: 13px;
 }
 
 .fixed-hover-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
   place-items: center;
   border: 1px solid rgba(255,255,255,.18);
   border-radius: 10px;
   background: rgba(255,255,255,.06);
   font-family: "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
-  font-size: 27px;
+  font-size: 31px;
 }
 
 .fixed-hover-copy {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
 }
 
 .fixed-hover-detail {
