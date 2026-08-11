@@ -1,6 +1,6 @@
-export const INVENTORY_COLUMNS = 6 as const;
-export const PLAYER_DEPLOY_COLUMNS = 5 as const;
-export const BATTLEFIELD_COLUMNS = 8 as const;
+export const INVENTORY_COLUMNS = 8 as const;
+export const PLAYER_DEPLOY_COLUMNS = 7 as const;
+export const BATTLEFIELD_COLUMNS = 10 as const;
 export const STARTING_UNLOCKED_COLUMNS = 3 as const;
 export const GRID_ROWS = 5 as const;
 
@@ -291,7 +291,7 @@ export type CombatEvent =
   | { type: "hud"; hud: CombatHud }
   | { type: "ally-spawned"; spawnerId: string; weaponItemIds: string[] }
   | { type: "wave-cleared"; waveIndex: number; goldEarned: number; metrics: CombatMetrics }
-  | { type: "board-column-unlocked"; waveIndex: number; column: 3 | 4 }
+  | { type: "board-column-unlocked"; waveIndex: number; column: 4 | 6 }
   | {
       type: "defeat";
       reason: DefeatReason;

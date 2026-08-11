@@ -214,15 +214,14 @@ export interface ProjectedBattlePoint {
   scale: number;
 }
 
-/** Visual-only 2.5D projection. Combat continues to use the original X axis. */
+/** Orthographic board projection: bag rows and columns stay visually aligned. */
 export function projectBattlePoint(x: number, y: number): ProjectedBattlePoint {
   const depth = clamp((y - ALLY_DEPLOY_Y_MIN) / (ALLY_DEPLOY_Y_MAX - ALLY_DEPLOY_Y_MIN), 0, 1);
-  const perspective = 0.86 + depth * 0.14;
   return {
-    x: BATTLEFIELD_WIDTH / 2 + (x - BATTLEFIELD_WIDTH / 2) * perspective,
-    y: 152 + depth * 174,
+    x,
+    y: 150 + depth * 144,
     depth,
-    scale: 0.55 + depth * 0.22,
+    scale: 0.68,
   };
 }
 
@@ -262,7 +261,7 @@ export function renderBattle(
   const units = [...snapshot.allies, ...snapshot.enemies]
     .map((unit) => {
       const point = projectBattlePoint(unit.x, unit.y);
-      return { ...unit, x: point.x, y: point.y, visualScale: point.scale };
+      return { ...unit, x: point.x, y: point.y, visualScale: point.scale * (unit.isStructure ? 1.38 : 1) };
     })
     .sort((left, right) => left.y - right.y || left.x - right.x);
   for (const unit of units) drawUnitShadow(context, unit);
@@ -296,129 +295,15 @@ export const renderCombat = renderBattle;
 
 function drawNightBattlefield(
   context: CanvasRenderingContext2D,
-  elapsed: number,
+  _elapsed: number,
   width: number,
   height: number,
 ): void {
-  const sky = context.createLinearGradient(0, 0, 0, height);
-  sky.addColorStop(0, COLORS.deepSky);
-  sky.addColorStop(0.52, COLORS.violetSky);
-  sky.addColorStop(1, "#8060b6");
-  context.fillStyle = sky;
+  context.fillStyle = "#24173f";
   context.fillRect(0, 0, width, height);
-
-  ellipse(context, 326, 57, 25, 25, "rgba(235,216,255,.16)");
-  ellipse(context, 326, 57, 18, 18, COLORS.moon);
-  ellipse(context, 319, 51, 4, 3, "rgba(135,102,175,.28)");
-  ellipse(context, 333, 62, 3, 4, "rgba(135,102,175,.22)");
-
-  const stars = [
-    [31, 48, 1], [67, 83, 0.8], [102, 39, 1.2], [139, 70, 0.7], [182, 27, 0.9],
-    [218, 76, 1.1], [258, 35, 0.7], [291, 93, 0.9], [360, 34, 1.1], [374, 102, 0.7],
-  ] as const;
-  for (let index = 0; index < stars.length; index += 1) {
-    const [x, y, size] = stars[index];
-    const pulse = 0.55 + Math.sin(elapsed * 1.4 + index * 1.77) * 0.15;
-    context.globalAlpha = pulse;
-    ellipse(context, x, y, size, size, COLORS.white);
-  }
-  context.globalAlpha = 1;
-
-  context.fillStyle = "#493578";
-  context.beginPath();
-  context.moveTo(0, 135);
-  context.lineTo(38, 106);
-  context.lineTo(74, 113);
-  context.lineTo(109, 80);
-  context.lineTo(151, 96);
-  context.lineTo(186, 66);
-  context.lineTo(226, 106);
-  context.lineTo(271, 92);
-  context.lineTo(310, 112);
-  context.lineTo(351, 75);
-  context.lineTo(width, 101);
-  context.lineTo(width, 184);
-  context.lineTo(0, 184);
-  context.closePath();
-  context.fill();
-
-  context.fillStyle = COLORS.farGround;
-  context.beginPath();
-  context.moveTo(0, 171);
-  context.quadraticCurveTo(59, 140, 119, 165);
-  context.quadraticCurveTo(181, 185, 244, 150);
-  context.quadraticCurveTo(314, 124, width, 162);
-  context.lineTo(width, 314);
-  context.lineTo(0, 314);
-  context.closePath();
-  context.fill();
-
-  drawTree(context, 104, 159, 0.62);
-  drawTree(context, 285, 143, 0.78);
-
-  const ground = context.createLinearGradient(0, 165, 0, height);
-  ground.addColorStop(0, "#60478e");
-  ground.addColorStop(0.68, COLORS.nearGround);
-  ground.addColorStop(1, "#21143b");
-  context.fillStyle = ground;
-  context.beginPath();
-  context.moveTo(66, 122);
-  context.lineTo(width - 66, 122);
-  context.lineTo(width, height);
-  context.lineTo(0, height);
-  context.closePath();
-  context.fill();
-
-  context.strokeStyle = "rgba(205,178,235,.16)";
-  context.lineWidth = 1;
-  for (let index = 0; index < 7; index += 1) {
-    const ratio = index / 6;
-    const y = 140 + ratio * 198;
-    const halfWidth = 136 + ratio * 59;
-    context.beginPath();
-    context.moveTo(195 - halfWidth, y);
-    context.lineTo(195 + halfWidth, y);
-    context.stroke();
-  }
-  for (let index = -4; index <= 4; index += 1) {
-    context.beginPath();
-    context.moveTo(195 + index * 28, 122);
-    context.lineTo(195 + index * 70, height);
-    context.stroke();
-  }
-
-  ellipse(context, 172, 235, 8, 3, "rgba(214,185,238,.3)");
-  ellipse(context, 315, 302, 12, 4, "rgba(21,12,42,.22)");
-  ellipse(context, 89, 322, 9, 3, "rgba(21,12,42,.22)");
-}
-
-function drawTree(context: CanvasRenderingContext2D, x: number, y: number, scale: number): void {
-  context.save();
-  context.translate(x, y);
-  context.scale(scale, scale);
-  context.strokeStyle = "#2b1b56";
-  context.lineWidth = 8;
-  context.lineCap = "round";
-  context.beginPath();
-  context.moveTo(0, 19);
-  context.lineTo(-1, -20);
-  context.lineTo(-15, -34);
-  context.moveTo(-1, -12);
-  context.lineTo(16, -30);
-  context.lineTo(22, -44);
-  context.moveTo(-9, -27);
-  context.lineTo(-25, -42);
-  context.stroke();
-  context.lineWidth = 4;
-  context.beginPath();
-  context.moveTo(16, -30);
-  context.lineTo(31, -34);
-  context.moveTo(-15, -34);
-  context.lineTo(-12, -50);
-  context.moveTo(-24, -42);
-  context.lineTo(-35, -39);
-  context.stroke();
-  context.restore();
+  context.fillStyle = "rgba(255,255,255,.018)";
+  ellipse(context, 76, 74, 58, 24, "rgba(255,255,255,.018)");
+  ellipse(context, 318, 334, 74, 28, "rgba(0,0,0,.05)");
 }
 
 function drawDeploymentGrid(context: CanvasRenderingContext2D): void {
@@ -438,12 +323,10 @@ function drawDeploymentGrid(context: CanvasRenderingContext2D): void {
       const tileWidth = Math.abs(horizontalNeighbor.x - center.x) * 1.02;
       const tileHeight = Math.abs(verticalNeighbor.y - center.y) * 0.96;
       const enemyZone = col >= PLAYER_DEPLOY_COLUMNS;
-      context.fillStyle = enemyZone
-        ? "rgba(93,48,76,.13)"
-        : "rgba(75,58,112,.14)";
-      context.strokeStyle = enemyZone ? "rgba(183,92,112,.16)" : "rgba(173,151,207,.15)";
-      context.lineWidth = 0.75;
-      roundedRectPath(context, center.x - tileWidth / 2, center.y - tileHeight / 2, tileWidth, tileHeight, 2);
+      context.fillStyle = enemyZone ? "rgba(255,120,135,.1)" : "rgba(235,228,247,.14)";
+      context.strokeStyle = enemyZone ? "rgba(255,130,145,.28)" : "rgba(235,228,247,.24)";
+      context.lineWidth = 1;
+      roundedRectPath(context, center.x - tileWidth / 2, center.y - tileHeight / 2, tileWidth, tileHeight, 3);
       context.fill();
       context.stroke();
     }
@@ -501,7 +384,7 @@ function drawSpawnerPlatform(context: CanvasRenderingContext2D, spawner: Spawner
   if (!definition) return;
   const deploy = getAllyDeployPosition(spawner.row, spawner.col);
   const point = projectBattlePoint(deploy.x, deploy.y);
-  const scale = point.scale * 1.05;
+  const scale = point.scale * 1.35;
   context.save();
   context.translate(point.x, point.y);
   context.scale(scale, scale);
@@ -574,6 +457,16 @@ function drawUnit(
   }
   context.restore();
 
+  if (unit.isStructure) {
+    context.save();
+    context.fillStyle = "#ffd6dc";
+    context.font = '800 9px Pretendard, "Noto Sans KR", sans-serif';
+    context.textAlign = "center";
+    context.textBaseline = "top";
+    context.fillText("적 기지", unit.x, unit.y + 7);
+    context.restore();
+  }
+
   if (unit.side === "ally" && unit.weapons) {
     for (let index = 0; index < unit.weapons.length; index += 1) {
       if (spawning) drawAbsorbingWeapon(context, unit, unit.weapons[index], index, spawnProgress);
@@ -612,6 +505,12 @@ function drawFactionOutline(context: CanvasRenderingContext2D, unit: UnitViewLik
   context.lineWidth = unit.isBoss ? 7 : 5.5;
   context.lineJoin = "round";
   context.lineCap = "round";
+  if (unit.isStructure) {
+    roundedRectPath(context, -16, -24, 32, 28, 4);
+    context.stroke();
+    context.restore();
+    return;
+  }
   roundedRectPath(context, -9, -18, 18, 19, unit.isBoss ? 3 : 5);
   context.stroke();
   context.beginPath();
@@ -692,21 +591,21 @@ function drawAllyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): vo
 
 function drawEnemyBody(context: CanvasRenderingContext2D, unit: UnitViewLike): void {
   if (unit.isStructure) {
-    context.fillStyle = "#3a2448";
+    context.fillStyle = "#48264f";
     context.strokeStyle = COLORS.red;
     context.lineWidth = 2.5;
-    roundedRectPath(context, -14, -19, 28, 21, 4);
+    roundedRectPath(context, -16, -24, 32, 28, 4);
     context.fill();
     context.stroke();
     context.fillStyle = "#6a456b";
-    context.fillRect(-10, -15, 6, 9);
-    context.fillRect(4, -15, 6, 9);
-    line(context, 0, -19, 0, -37, "#2a1636", 3);
+    context.fillRect(-11, -19, 7, 12);
+    context.fillRect(4, -19, 7, 12);
+    line(context, 0, -24, 0, -43, "#2a1636", 3);
     context.fillStyle = COLORS.red;
     context.beginPath();
-    context.moveTo(1, -36);
-    context.lineTo(15, -31);
-    context.lineTo(1, -25);
+    context.moveTo(1, -42);
+    context.lineTo(17, -36);
+    context.lineTo(1, -29);
     context.closePath();
     context.fill();
     context.stroke();

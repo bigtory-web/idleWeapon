@@ -866,7 +866,9 @@ export default function GameClient() {
                 const previewed = dropPreview?.cells.some((cell) => positionsEqual(cell, position));
                 const locked = position.col >= unlockedColumns && position.col < PLAYER_DEPLOY_COLUMNS;
                 const permanentLocked = position.col >= PLAYER_DEPLOY_COLUMNS;
-                const outpostCell = locked && (position.row === 1 || position.row === 3);
+                const outpostCell = locked
+                  && (position.col === 3 || position.col === 5)
+                  && (position.row === 1 || position.row === 3);
                 return <div
                   key={target}
                   className={[

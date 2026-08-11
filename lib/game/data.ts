@@ -18,8 +18,8 @@ export const MAX_UNITS = 160;
 export const MAX_PROJECTILES = 400;
 
 /** Global enemy-only tuning: keep wave composition and behavior unchanged. */
-export const ENEMY_HP_MULTIPLIER = 1.35;
-export const ENEMY_DAMAGE_MULTIPLIER = 1.25;
+export const ENEMY_HP_MULTIPLIER = 1.2;
+export const ENEMY_DAMAGE_MULTIPLIER = 1.1;
 
 function scaleEnemyHp(baseHp: number): number {
   return Math.round(baseHp * ENEMY_HP_MULTIPLIER);

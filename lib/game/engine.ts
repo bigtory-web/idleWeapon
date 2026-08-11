@@ -10,11 +10,14 @@ import {
   WEAPON_DAMAGE_MULTIPLIER,
 } from "./data";
 import { getAllyDeployPosition, getBattleCellPosition } from "./battle-layout";
-import type {
-  CombatEvent,
-  CombatSnapshot,
-  SpawnerBlueprint,
-  WaveStartInput,
+import {
+  BATTLEFIELD_COLUMNS,
+  GRID_ROWS,
+  PLAYER_DEPLOY_COLUMNS,
+  type CombatEvent,
+  type CombatSnapshot,
+  type SpawnerBlueprint,
+  type WaveStartInput,
 } from "./types";
 
 /**
@@ -26,7 +29,7 @@ import type {
  */
 
 const LOGICAL_WIDTH = 390;
-const ENEMY_SPAWN_X = getBattleCellPosition(0, 7).x;
+const ENEMY_SPAWN_X = getBattleCellPosition(0, BATTLEFIELD_COLUMNS - 1).x;
 const BASE_X = 29;
 const UNIT_CAP = MAX_UNITS;
 const PROJECTILE_CAP = MAX_PROJECTILES;
@@ -321,7 +324,7 @@ export class CombatEngine {
   private pendingEnemies: PendingEnemy[] = [];
   private pendingBosses: PendingEnemy[] = [];
   private enemySpawnCooldown = 0;
-  private objectiveUnlockColumn: 3 | 4 | null = null;
+  private objectiveUnlockColumn: 4 | 6 | null = null;
   private objectiveUnlockEmitted = false;
   private spawners: InternalSpawner[] = [];
   private allies: AllyUnit[] = [];
@@ -363,7 +366,7 @@ export class CombatEngine {
     this.pendingEnemies = [];
     this.pendingBosses = [];
     this.enemySpawnCooldown = 0;
-    this.objectiveUnlockColumn = normalized.waveIndex === 2 ? 3 : normalized.waveIndex === 4 ? 4 : null;
+    this.objectiveUnlockColumn = normalized.waveIndex === 2 ? 4 : normalized.waveIndex === 4 ? 6 : null;
     this.objectiveUnlockEmitted = false;
     this.allies = [];
     this.enemies = [];
@@ -372,7 +375,8 @@ export class CombatEngine {
     this.metrics = this.emptyMetrics();
     this.spawners = normalized.spawners
       .filter((blueprint) => Boolean(CHARACTERS[blueprint.characterId])
-        && blueprint.row >= 0 && blueprint.row < 5 && blueprint.col >= 0 && blueprint.col < 5)
+        && blueprint.row >= 0 && blueprint.row < GRID_ROWS
+        && blueprint.col >= 0 && blueprint.col < PLAYER_DEPLOY_COLUMNS)
       .map((blueprint) => {
         const cooldownDuration = this.getSpawnerCooldown(blueprint);
         return { blueprint, cooldown: cooldownDuration, cooldownDuration };
@@ -928,7 +932,7 @@ export class CombatEngine {
 
   private spawnWaveOutposts(): void {
     if (this.objectiveUnlockColumn === null) return;
-    const battleColumn = this.waveIndex === 2 ? 5 : 6;
+    const battleColumn = this.waveIndex === 2 ? 7 : 8;
     const maxHp = 90 + this.waveIndex * 30;
     for (const row of [1, 3]) {
       const position = getBattleCellPosition(row, battleColumn);

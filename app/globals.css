@@ -1968,9 +1968,9 @@ textarea:focus-visible {
 }
 
 .inventory-grid {
-  --board-cell: min(42px, calc((100vw - 50px) / 6));
+  --board-cell: min(42px, calc((100vw - 58px) / 8));
   display: grid;
-  grid-template-columns: repeat(6, var(--board-cell));
+  grid-template-columns: repeat(8, var(--board-cell));
   grid-template-rows: repeat(5, var(--board-cell));
   gap: 4px;
   width: auto;
@@ -1981,11 +1981,7 @@ textarea:focus-visible {
   width: var(--board-cell);
   height: var(--board-cell);
   border-radius: 7px;
-  background-color: rgba(14,11,23,.46);
-}
-
-.inventory-grid .grid-cell:nth-child(odd) {
-  background-color: rgba(102,83,126,.17);
+  background-color: rgba(224,216,238,.16);
 }
 
 .grid-item {

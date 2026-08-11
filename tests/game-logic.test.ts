@@ -70,10 +70,10 @@ test("data keeps combat stats while characters use one cell and enemies keep the
   assert.equal(WEAPONS.bow.equipPenalty?.hpMultiplier, 0.9);
   assert.deepEqual(WAVE_DEFINITIONS.map(getWaveEnemyTotal), [18, 30, 26, 32, 48, 31]);
   assert.deepEqual(WAVE_DEFINITIONS.map(({ timeLimit }) => timeLimit), [60, 60, 90, 90, 90, 120]);
-  assert.equal(ENEMY_HP_MULTIPLIER, 1.35);
-  assert.equal(ENEMY_DAMAGE_MULTIPLIER, 1.25);
+  assert.equal(ENEMY_HP_MULTIPLIER, 1.2);
+  assert.equal(ENEMY_DAMAGE_MULTIPLIER, 1.1);
   assert.deepEqual(Object.values(ENEMIES).filter(({ id }) => id !== "outpost").map(({ hp, damage }) => [hp, damage]), [
-    [61, 9], [41, 6], [149, 15], [74, 10], [1215, 28],
+    [54, 8], [36, 6], [132, 13], [66, 9], [1080, 24],
   ]);
 });
 
@@ -92,7 +92,7 @@ test("footprints rotate into normalized bounds and reject edges or overlap", () 
   const sword = item("sword", "sword", 0, 0);
   assert.deepEqual(getOccupiedCells(sword), [{ row: 0, col: 0 }, { row: 0, col: 1 }]);
   assert.equal(canPlaceItem([], sword, { row: 0, col: 3 }), true);
-  assert.equal(canPlaceItem([], sword, { row: 0, col: 4 }), false);
+  assert.equal(canPlaceItem([], sword, { row: 0, col: 6 }), false);
   assert.equal(canPlaceItem([], sword, { row: 0, col: 2 }, 0, [], STARTING_UNLOCKED_COLUMNS), false);
   assert.equal(canPlaceItem([item("block", "scout", 0, 1)], sword, { row: 0, col: 0 }), false);
   const hammer = item("hammer", "hammer", 1, 1);
@@ -329,7 +329,7 @@ test("wave outposts require both structures and unlock the matching board column
   });
   const initial = engine.getSnapshot().enemies.filter(({ isStructure }) => isStructure);
   assert.equal(initial.length, 2);
-  assert.deepEqual(initial.map(({ x, y, maxHp }) => [x, y, maxHp]), [[265, 250, 150], [265, 290, 150]]);
+  assert.deepEqual(initial.map(({ x, y, maxHp }) => [x, y, maxHp]), [[280, 250, 150], [280, 290, 150]]);
   const internals = (engine as unknown as { enemies: Array<{ hp: number; isStructure: boolean }> }).enemies.filter(({ isStructure }) => isStructure);
   internals[0]!.hp = 0;
   stepFor(engine, 0.02);
@@ -338,7 +338,7 @@ test("wave outposts require both structures and unlock the matching board column
   internals[1]!.hp = 0;
   stepFor(engine, 0.02);
   assert.equal(engine.getSnapshot().phase, "cleared");
-  assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 3), true);
+  assert.equal(events.some((event) => event.type === "board-column-unlocked" && event.column === 4), true);
   engine.dispose();
 
   const later = new CombatEngine();
@@ -349,11 +349,11 @@ test("wave outposts require both structures and unlock the matching board column
     spawners: [],
     wave: { index: 4, name: "outposts", timeLimit: 60, clearGold: 0, groups: [] },
   });
-  assert.deepEqual(later.getSnapshot().enemies.filter(({ isStructure }) => isStructure).map(({ x, maxHp }) => [x, maxHp]), [[309, 210], [309, 210]]);
+  assert.deepEqual(later.getSnapshot().enemies.filter(({ isStructure }) => isStructure).map(({ x, maxHp }) => [x, maxHp]), [[314, 210], [314, 210]]);
   later.dispose();
 });
 
-test("five player columns and five rows map to distinct allied deployment positions and spawner views", () => {
+test("seven player columns and five rows map to distinct allied deployment positions and spawner views", () => {
   const engine = new CombatEngine();
   engine.startWave({
     waveIndex: 1,
@@ -361,7 +361,7 @@ test("five player columns and five rows map to distinct allied deployment positi
     baseHp: 100,
     spawners: [
       { id: "back-top", characterId: "shieldbearer", tier: 1, row: 0, col: 0, maxActive: 1, weapons: [] },
-      { id: "front-bottom", characterId: "scout", tier: 1, row: 4, col: 4, maxActive: 1, weapons: [] },
+      { id: "front-bottom", characterId: "scout", tier: 1, row: 4, col: 6, maxActive: 1, weapons: [] },
     ],
     wave: { index: 1, name: "formation", timeLimit: 60, clearGold: 8, groups: [{ at: 50, enemies: [{ enemyId: "grunt", count: 1 }] }] },
   });
@@ -370,15 +370,15 @@ test("five player columns and five rows map to distinct allied deployment positi
   const snapshot = engine.getSnapshot();
   const backTop = snapshot.allies.find(({ definitionId }) => definitionId === "shieldbearer")!;
   const frontBottom = snapshot.allies.find(({ definitionId }) => definitionId === "scout")!;
-  assert.equal(backTop.x >= 42 && backTop.x <= 48, true);
+  assert.equal(backTop.x >= 39 && backTop.x <= 45, true);
   assert.equal(backTop.y >= 227 && backTop.y <= 233, true);
-  assert.equal(frontBottom.x >= 218 && frontBottom.x <= 224, true);
+  assert.equal(frontBottom.x >= 243 && frontBottom.x <= 249, true);
   assert.equal(frontBottom.y >= 307 && frontBottom.y <= 313, true);
-  assert.equal(frontBottom.x - backTop.x > 165, true);
+  assert.equal(frontBottom.x - backTop.x > 195, true);
   assert.equal(frontBottom.y - backTop.y > 70, true);
   assert.deepEqual(snapshot.spawners.map(({ characterId, tier, row, col, weapons }) => ({ characterId, tier, row, col, weapons })), [
     { characterId: "shieldbearer", tier: 1, row: 0, col: 0, weapons: [] },
-    { characterId: "scout", tier: 1, row: 4, col: 4, weapons: [] },
+    { characterId: "scout", tier: 1, row: 4, col: 6, weapons: [] },
   ]);
   engine.dispose();
 });
@@ -412,7 +412,8 @@ test("drop helper moves multi-cell items and rejects invalid anchors", () => {
   assert.equal(moved.success, true);
   assert.deepEqual(moved.gridItems[0]?.position, { row: 2, col: 2 });
   assert.equal(dropItemOnGrid(state, "sword", { row: 0, col: 3 }).success, true);
-  assert.equal(dropItemOnGrid(state, "sword", { row: 0, col: 4 }).success, false);
+  assert.equal(dropItemOnGrid(state, "sword", { row: 0, col: 5 }).success, true);
+  assert.equal(dropItemOnGrid(state, "sword", { row: 0, col: 6 }).success, false);
   assert.equal(dropItemOnGrid({ ...state, unlockedColumns: 3 }, "sword", { row: 0, col: 2 }).success, false);
 });
 
@@ -430,15 +431,15 @@ test("battle speed normalization and substeps scale elapsed time without oversiz
 
 test("deployment projection preserves all five rows and spawn arrival has start, middle, and end states", () => {
   const first = getAllyDeployPosition(0, 0);
-  const last = getAllyDeployPosition(4, 4);
-  assert.deepEqual(first, { x: 45, y: 230 });
-  assert.deepEqual(last, { x: 221, y: 310 });
-  assert.equal(INVENTORY_COLUMNS, 6);
-  assert.equal(PLAYER_DEPLOY_COLUMNS, 5);
-  assert.equal(BATTLEFIELD_COLUMNS, 8);
-  assert.deepEqual(getBattleCellPosition(4, 7), { x: 353, y: 310 });
-  assert.equal(projectBattlePoint(first.x, first.y).y, 152);
-  assert.equal(projectBattlePoint(last.x, last.y).y, 326);
+  const last = getAllyDeployPosition(4, 6);
+  assert.deepEqual(first, { x: 42, y: 230 });
+  assert.deepEqual(last, { x: 246, y: 310 });
+  assert.equal(INVENTORY_COLUMNS, 8);
+  assert.equal(PLAYER_DEPLOY_COLUMNS, 7);
+  assert.equal(BATTLEFIELD_COLUMNS, 10);
+  assert.deepEqual(getBattleCellPosition(4, 9), { x: 348, y: 310 });
+  assert.deepEqual(projectBattlePoint(first.x, first.y), { x: 42, y: 150, depth: 0, scale: 0.68 });
+  assert.deepEqual(projectBattlePoint(last.x, last.y), { x: 246, y: 294, depth: 1, scale: 0.68 });
   assert.equal(getSpawnArrivalProgress(0.42), 0);
   assert.equal(getSpawnArrivalProgress(0.21), 0.5);
   assert.equal(getSpawnArrivalProgress(0), 1);
