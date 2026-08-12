@@ -350,6 +350,25 @@ export function dropItemOnGrid(state: InventoryState, sourceId: string, targetPo
   };
 }
 
+/**
+ * Pointer drops keep the grabbed cell aligned for normal movement, but a
+ * matching item under the pointer always wins as the merge target. This keeps
+ * multi-cell items mergeable even when they are grabbed away from the anchor.
+ */
+export function dropItemOnGridAtPointer(
+  state: InventoryState,
+  sourceId: string,
+  pointerPosition: GridPosition,
+  alignedPosition: GridPosition,
+): InventoryActionResult {
+  const source = findLocatedItem(state, sourceId);
+  const target = getGridItemAt(state.gridItems, pointerPosition);
+  if (source && target && source.id !== target.id && source.definitionId === target.definitionId && source.tier === target.tier) {
+    return mergeInventoryItems(state, source.id, target.id);
+  }
+  return dropItemOnGrid(state, sourceId, alignedPosition);
+}
+
 export function cloneInventoryState(state: InventoryState): InventoryState {
   return { gridItems: cloneGridItems(state.gridItems), pendingRewards: state.pendingRewards.map((reward) => ({ ...reward })), unlockedColumns: state.unlockedColumns };
 }

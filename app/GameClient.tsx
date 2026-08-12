@@ -25,6 +25,7 @@ import { CombatEngine } from "@/lib/game/engine";
 import {
   deriveSpawnerBlueprints,
   dropItemOnGrid,
+  dropItemOnGridAtPointer,
   getActiveWeaponConnections,
   getGridItemAt,
   getMergeReadyItemIds,
@@ -57,6 +58,7 @@ import {
   type RunReportV2,
   type ShopOffer,
   type ShopPurchase,
+  type Tier,
   type WeaponId,
 } from "@/lib/game/types";
 
@@ -561,6 +563,20 @@ export default function GameClient() {
     showToast("테스트 골드 +100", "success");
   }, [showToast]);
 
+  const increaseTestTiers = useCallback(() => {
+    if (phaseRef.current !== "preparation" && phaseRef.current !== "shop") {
+      showToast("편성 단계에서 사용할 수 있어요.", "warning");
+      return;
+    }
+    if (gridRef.current.every((item) => item.tier === 5)) {
+      showToast("모든 아이템이 이미 T5예요.", "normal");
+      return;
+    }
+    const nextGridItems = gridRef.current.map((item) => ({ ...item, tier: Math.min(5, item.tier + 1) as Tier }));
+    commitInventory(nextGridItems);
+    showToast("테스트 티어 +1", "success");
+  }, [commitInventory, showToast]);
+
   const togglePause = useCallback(() => {
     if (phaseRef.current !== "combat") return;
     setManualPaused((paused) => {
@@ -579,10 +595,12 @@ export default function GameClient() {
     if (!target || (phaseRef.current !== "preparation" && phaseRef.current !== "shop")) return;
     if (!target.startsWith("grid:")) return;
     const [, rowValue, colValue] = target.split(":");
-    const result = dropItemOnGrid(
+    const pointerPosition = { row: Number(rowValue), col: Number(colValue) };
+    const result = dropItemOnGridAtPointer(
       { gridItems: gridRef.current, pendingRewards: [], unlockedColumns: unlockedColumnsRef.current },
       itemId,
-      { row: Number(rowValue) - grabRow, col: Number(colValue) - grabCol },
+      pointerPosition,
+      { row: pointerPosition.row - grabRow, col: pointerPosition.col - grabCol },
     );
     if (result.success) {
       applyInventory(result.gridItems, result.action === "merged" ? "아이템 합성 완료!" : undefined);
@@ -818,11 +836,15 @@ export default function GameClient() {
   const dropPreview = (() => {
     if (!drag?.moved || !dropTarget?.startsWith("grid:")) return null;
     const [, rowValue, colValue] = dropTarget.split(":");
-    const position = { row: Number(rowValue) - drag.grabRow, col: Number(colValue) - drag.grabCol };
+    const pointerPosition = { row: Number(rowValue), col: Number(colValue) };
+    const position = { row: pointerPosition.row - drag.grabRow, col: pointerPosition.col - drag.grabCol };
     const item = gridItems.find((entry) => entry.id === drag.id);
     if (!item) return null;
-    const result = dropItemOnGrid({ gridItems, pendingRewards: [], unlockedColumns }, item.id, position);
-    return { cells: getOccupiedCells(item, position), valid: result.success, merging: result.action === "merged" };
+    const pointerTarget = getGridItemAt(gridItems, pointerPosition);
+    const result = dropItemOnGridAtPointer({ gridItems, pendingRewards: [], unlockedColumns }, item.id, pointerPosition, position);
+    const previewItem = result.action === "merged" && pointerTarget ? pointerTarget : item;
+    const previewPosition = result.action === "merged" && pointerTarget?.position ? pointerTarget.position : position;
+    return { cells: getOccupiedCells(previewItem, previewPosition), valid: result.success, merging: result.action === "merged" };
   })();
 
   return (
@@ -834,6 +856,7 @@ export default function GameClient() {
             <div className="header-gold-group"><span>보유 골드</span><strong className="header-gold">● {gold}</strong><button type="button" className="gold-cheat-button" onClick={addTestGold}>+100</button></div>
           </div>
           <div className="top-actions">
+            <button type="button" className="tier-cheat-button" onClick={increaseTestTiers} title="가방의 모든 아이템 티어를 1 올립니다">T+1</button>
             <div className="speed-controls" role="group" aria-label="전투 배속">
               {([0.5, 1, 2] as const).map((speed) => <button
                 key={speed}

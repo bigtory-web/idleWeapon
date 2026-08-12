@@ -1324,6 +1324,7 @@ textarea:focus-visible {
 }
 
 .gold-cheat-button,
+.tier-cheat-button,
 .shop-reroll-button {
   border: 1px solid rgba(126, 238, 223, .42);
   border-radius: 7px;
@@ -1332,6 +1333,12 @@ textarea:focus-visible {
   font-size: 9px;
   font-weight: 950;
   cursor: pointer;
+}
+
+.tier-cheat-button {
+  min-width: 34px;
+  height: 28px;
+  padding: 2px 6px;
 }
 
 .gold-cheat-button {

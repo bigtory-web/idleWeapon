@@ -22,6 +22,7 @@ import {
   canPlaceItem,
   deriveSpawnerBlueprints,
   dropItemOnGrid,
+  dropItemOnGridAtPointer,
   findFirstPlacement,
   getActiveWeaponConnections,
   getAdjacentWeaponConnections,
@@ -244,6 +245,22 @@ test("manual merging reaches T5, refuses T5 pairs, and marks every available pai
   assert.equal(refused.success, false);
   assert.equal(refused.reason, "max-tier");
   assert.equal(getMergeReadyItemIds(maxed.gridItems).size, 0);
+});
+
+test("multi-cell items merge under the pointer even when grabbed away from their anchor", () => {
+  const state = {
+    gridItems: [
+      item("source", "sword", 0, 0),
+      item("blocker", "shieldbearer", 2, 1),
+      item("target", "sword", 2, 2),
+    ],
+    pendingRewards: [],
+  };
+  const merged = dropItemOnGridAtPointer(state, "source", { row: 2, col: 2 }, { row: 2, col: 1 });
+  assert.equal(merged.success, true);
+  assert.equal(merged.action, "merged");
+  assert.equal(merged.gridItems.find(({ id }) => id === "target")?.tier, 2);
+  assert.equal(merged.gridItems.some(({ id }) => id === "source"), false);
 });
 
 test("twelve named recipes activate once while duplicate equipment uses its own recipe", () => {

@@ -233,6 +233,8 @@ test("test shop controls and staged enemy groups are wired into the deployed UI"
     readFile(new URL("../lib/game/engine.ts", import.meta.url), "utf8"),
   ]);
   assert.match(client, /className="gold-cheat-button"/);
+  assert.match(client, /className="tier-cheat-button"/);
+  assert.match(client, /dropItemOnGridAtPointer/);
   assert.match(client, /className="shop-reroll-button"/);
   assert.match(client, /goldRef\.current \+= 100/);
   assert.match(shop, /rerollIndex = 0/);
