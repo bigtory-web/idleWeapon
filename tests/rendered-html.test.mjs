@@ -84,6 +84,10 @@ test("inventory uses a locked 42px 7x5 board, continuous footprints, adjacency h
   assert.match(styles, /\.tier-4[^{}]*\{[^}]*#b879ff/s);
   assert.match(styles, /\.tier-5[^{}]*\{[^}]*#ff5268/s);
   assert.match(client, /className="merge-ready-arrow"/);
+  assert.match(client, /inventoryLocked \? new Set<string>\(\) : getMergeReadyItemIds/);
+  assert.match(client, /className="merge-ready-hint"/);
+  assert.match(client, /merging: result\.action === "merged"/);
+  assert.match(styles, /\.grid-cell\.drop-merge/);
   assert.doesNotMatch(styles, /\.socket-target-cell|\.connection-mark/);
   assert.doesNotMatch(client, /"linked-active"/);
   assert.doesNotMatch(styles, /\.grid-item\.linked-active/);

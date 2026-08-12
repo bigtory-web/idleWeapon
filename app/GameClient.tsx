@@ -462,7 +462,7 @@ export default function GameClient() {
     ? Math.max(0, snapshot.timeLimit - snapshot.elapsed)
     : currentWave?.timeLimit ?? 0;
   const inventoryLocked = phase === "combat" || phase === "transition";
-  const mergeReadyItemIds = getMergeReadyItemIds(gridItems);
+  const mergeReadyItemIds = inventoryLocked ? new Set<string>() : getMergeReadyItemIds(gridItems);
 
   const resetRun = useCallback((nextSeed: string) => {
     if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
@@ -587,7 +587,7 @@ export default function GameClient() {
     if (result.success) {
       applyInventory(result.gridItems, result.action === "merged" ? "아이템 합성 완료!" : undefined);
     } else {
-      showToast("그 위치에는 놓을 수 없어요.", "warning");
+      showToast(result.reason === "max-tier" ? "T5는 최고 티어예요." : "그 위치에는 놓을 수 없어요.", "warning");
     }
   }, [applyInventory, showToast]);
 
@@ -723,7 +723,7 @@ export default function GameClient() {
       icon: definition.icon,
       title: `${definition.name} · T${item.tier}`,
       description: definition.description,
-      detail: [characterStats, squadDetail, isCharacter ? `총 코스트 ${equipmentCost} · 최종 생성 ${spawnCooldown.toFixed(1)}초` : "", weaponStats, penaltyDetail ? `장착 효과: ${penaltyDetail}` : "", comboDetail].filter(Boolean).join(" · "),
+      detail: [mergeReadyItemIds.has(item.id) ? `합성 가능: 같은 T${item.tier} 아이템 위에 겹치면 T${item.tier + 1}` : "", characterStats, squadDetail, isCharacter ? `총 코스트 ${equipmentCost} · 최종 생성 ${spawnCooldown.toFixed(1)}초` : "", weaponStats, penaltyDetail ? `장착 효과: ${penaltyDetail}` : "", comboDetail].filter(Boolean).join(" · "),
       badge: isCharacter ? `생성 ${spawnCooldown.toFixed(1)}초` : undefined,
     };
     const showItemHelp = () => {
@@ -822,7 +822,7 @@ export default function GameClient() {
     const item = gridItems.find((entry) => entry.id === drag.id);
     if (!item) return null;
     const result = dropItemOnGrid({ gridItems, pendingRewards: [], unlockedColumns }, item.id, position);
-    return { cells: getOccupiedCells(item, position), valid: result.success };
+    return { cells: getOccupiedCells(item, position), valid: result.success, merging: result.action === "merged" };
   })();
 
   return (
@@ -934,6 +934,7 @@ export default function GameClient() {
 
         <section className="command-panel" aria-label="가방 편성">
           <div className="backpack-frame">
+            {mergeReadyItemIds.size > 0 && <div className="merge-ready-hint" role="status"><span aria-hidden="true">↑</span> 같은 티어를 겹쳐 합성</div>}
             <div className="inventory-grid">
               {Array.from({ length: GRID_ROWS * INVENTORY_COLUMNS }, (_, index) => {
                 const position: GridPosition = { row: Math.floor(index / INVENTORY_COLUMNS), col: index % INVENTORY_COLUMNS };
@@ -948,7 +949,7 @@ export default function GameClient() {
                     "grid-cell",
                     occupant ? "occupied-cell" : "",
                     locked ? "locked-cell" : "",
-                    previewed ? (dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
+                    previewed ? (dropPreview?.merging ? "drop-merge" : dropPreview?.valid ? "drop-valid" : "drop-invalid") : "",
                   ].filter(Boolean).join(" ")}
                   data-drop-target={!locked ? target : undefined}
                 >{item && renderItem(item)}</div>;
